@@ -1,0 +1,13 @@
+import mongoose from "mongoose";
+const studentSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, unique: true },
+  password: String,
+  role: { type: String, default: "student" },
+  age: Number,
+  mobile: String,
+  class: Number,
+  createdAt: { type: Date, default: Date.now }
+});
+const Student = mongoose.model("Student", studentSchema);
+export default Student;
