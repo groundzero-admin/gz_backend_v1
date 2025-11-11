@@ -171,7 +171,7 @@ export const listWorksheetsFromCCourseForStudent = async (req, res) => {
 
 
 
-////////////////////    for admin only 
+////////////////////    for admin and teacher both  only 
 export const getWorksheetsFromCCourseForAdmin = async (req, res) => {
   try {
     const { courseId } = req.query;

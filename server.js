@@ -16,7 +16,7 @@ import { requireAdmin, requireStudent , requireTeacher,
   requireNonStudent} from "./middleware/roleCheck.js";
 
 // Controller Imports
-import { loginAdmin } from "./controllers/adminController.js";
+import { getAllStudentDetails, loginAdmin } from "./controllers/adminController.js";
 import { createInvite } from "./controllers/inviteController.js";
 import { validateInvite, onboardUser } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
@@ -25,7 +25,7 @@ import { enrollStudent } from "./controllers/enrollmentController.js";
 import { requireAuthCookie } from "./middleware/auth.js";
 import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
 import { getMyChildrenDetails } from "./controllers/parentController.js";
-import { listAllTeachers } from "./controllers/teacherController.js";
+import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
 import { getWorksheetsFromCCourseForAdmin, listWorksheetsFromCCourseForStudent, uploadWorksheet } from "./controllers/workSheetController.js";
 import upload from "./middleware/uploadfile.js";
 import { getMyOldChats, getStudentChatHistory } from "./controllers/AiController.js";
@@ -68,6 +68,7 @@ app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
 app.get("/api/admin/listallteachers", requireAuthCookie, requireAdmin, listAllTeachers);
 app.post( "/api/admin/createcourse", requireAuthCookie, requireAdmin,  createCourse   );
 app.get(  "/api/admin/listallcourse",  requireAuthCookie, requireAdmin, listAllCourses  );
+
 app.post(
   "/api/admin/uploadworksheet",
   requireAuthCookie,
@@ -85,6 +86,13 @@ app.get(
 );
 
 
+app.get(
+  "/api/admin/getallstudentdetails", 
+  requireAuthCookie, 
+  requireAdmin, 
+  getAllStudentDetails
+);
+
 
 
 
@@ -100,7 +108,7 @@ app.post("/api/onboard", onboardUser);
 
 
 
-// Auth
+// Auth  for all 
 app.post("/api/login", loginUser);
 app.post("/api/logout", logoutUser);
 
@@ -126,8 +134,15 @@ app.post("/api/checkrole", requireAuthCookie, checkRole);
 
 //////////////// this is req that is sent by user during signup , that hey admin pls create my account  , new join reuest , open route 
 app.post("/api/requestaccess", requestAccess);
+/////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-//////////// get student promt hiostory only for admin teacher parent 
+
+
+
+
+
+
+//////////// get student promt hiostory only for admin teacher parent , except for student ////////////////////////////////////////
 app.get(
   "/api/shared/studentchathistory",
   requireAuthCookie,    // Checks for login
@@ -135,14 +150,14 @@ app.get(
   getStudentChatHistory // Runs controller
 );
 
+/////////////////////////////////////////////// ///////////////////     /   //////////////////////////////////////////////////////////////
 
 
 
 
 
 
-
-//////////////////// parent routes 
+//////////////////// parent routes //////////////////////////////////////////////////////////////
 app.get(
   "/api/parent/mychildrendetails", 
   requireAuthCookie,  // Checks for login
@@ -151,10 +166,22 @@ app.get(
 );
 
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
-/////////////// students routes
+
+
+
+
+
+
+
+
+
+
+/////////////// students routes   ///////////////////////////////////////////////////////////////////////////////////////////////////
+  
 app.get(
   "/api/student/listmycourses",
   requireAuthCookie,  // Checks for login
@@ -182,7 +209,7 @@ app.get(
 // Enrollment (Student)
 app.post("/api/student/enrollment", requireStudent, enrollStudent);
 
-
+///////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -199,12 +226,26 @@ app.get(
   requireTeacher,         // Checks for 'teacher' role
   listTeachersCourses     // Runs controller
 );
+
 app.get(
   "/api/teacher/worksheetfromcouse",
   requireAuthCookie,
   requireTeacher,
   getWorksheetsFromCCourseForAdmin
 );
+
+
+app.get(
+  "/api/teacher/listmystudent",
+  requireAuthCookie,
+  requireTeacher,
+  listMyStudents
+);
+
+
+
+
+
 
 
 
