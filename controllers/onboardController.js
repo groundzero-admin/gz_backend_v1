@@ -28,22 +28,31 @@ export const validateInvite = async (req, res) => {
   }
 };
 
+
+
+
+
 export const onboardUser = async (req, res) => {
   try {
     const token = req.body.token || req.query.token;
     const roleFromReq = req.body.role || req.query.role;
     const { otp } = req.body;
-    if (!token || !otp) return sendResponse(res, 400, false, "token and otp required");
+    if (!token || !otp)
+      return sendResponse(res, 400, false, "token and otp required");
 
     const decoded = verifyTokenSafe(token);
-    if (!decoded) return sendResponse(res, 400, false, "Invalid or expired token");
+    if (!decoded)
+      return sendResponse(res, 400, false, "Invalid or expired token");
 
-    if (roleFromReq && roleFromReq !== decoded.role) return sendResponse(res, 400, false, "Role mismatch");
+    if (roleFromReq && roleFromReq !== decoded.role)
+      return sendResponse(res, 400, false, "Role mismatch");
 
     const invite = await Invitation.findOne({ token });
     if (!invite) return sendResponse(res, 404, false, "Invitation not found");
-    if (invite.expiresAt < new Date()) return sendResponse(res, 410, false, "Invitation expired");
-    if (String(invite.otp) !== String(otp)) return sendResponse(res, 400, false, "Invalid OTP");
+    if (invite.expiresAt < new Date())
+      return sendResponse(res, 410, false, "Invitation expired");
+    if (String(invite.otp) !== String(otp))
+      return sendResponse(res, 400, false, "Invalid OTP");
 
     const targetRole = invite.role; // trusted
     const email = invite.email;
@@ -53,7 +62,7 @@ export const onboardUser = async (req, res) => {
       Student.findOne({ email }),
       Teacher.findOne({ email }),
       Parent.findOne({ email }),
-      Admin.findOne({ email })
+      Admin.findOne({ email }),
     ]);
     if (already.some(Boolean)) {
       await Invitation.deleteOne({ _id: invite._id }); // avoid future reuse
@@ -63,66 +72,79 @@ export const onboardUser = async (req, res) => {
     if (targetRole === "student") {
       const { name, password, mobile, age } = req.body;
       const studentClass = req.body.class;
-      if (!name || !password || !mobile || age === undefined || studentClass === undefined) return sendResponse(res, 400, false, "Missing required student fields");
-      if (isNaN(Number(studentClass))) return sendResponse(res, 400, false, "class must be a number");
+      if (
+        !name ||
+        !password ||
+        !mobile ||
+        age === undefined ||
+        studentClass === undefined
+      )
+        return sendResponse(res, 400, false, "Missing required student fields");
+      if (isNaN(Number(studentClass)))
+        return sendResponse(res, 400, false, "class must be a number");
 
       const hashed = await bcrypt.hash(password, 10);
       const student = new Student({
-        name, email, password: hashed, role: "student",
-        age: Number(age), mobile, class: Number(studentClass)
+        name,
+        email,
+        password: hashed,
+        role: "student",
+        age: Number(age),
+        mobile,
+        class: Number(studentClass),
       });
       await student.save();
 
-      // Link parents
-      const parentEmails = Array.isArray(invite.parentEmails) ? invite.parentEmails : [];
-      const parentDocs = [];
-      for (const p of parentEmails) {
-        const pLower = String(p).toLowerCase().trim();
-        const parentDoc = await Parent.findOne({ email: pLower });
-        if (parentDoc) parentDocs.push(parentDoc);
-      }
-      if (parentDocs.length > 0) {
-        const rels = parentDocs.map(pd => ({ studentId: student._id, parentId: pd._id }));
-        try { await StudentParentRelation.insertMany(rels, { ordered: false }); } catch (e) { /* ignore dup errors */ }
-      }
+      // --- LOGIC REMOVED ---
+      // Parent linking logic is no longer here.
 
       await Invitation.deleteOne({ _id: invite._id });
-      return sendResponse(res, 201, true, "Student onboarded", { studentId: student._id });
+      return sendResponse(res, 201, true, "Student onboarded", {
+        studentId: student._id,
+      });
     }
 
     if (targetRole === "teacher") {
       const { name, password, mobile } = req.body;
-      if (!name || !password || !mobile) return sendResponse(res, 400, false, "Missing required teacher fields");
+      if (!name || !password || !mobile)
+        return sendResponse(res, 400, false, "Missing required teacher fields");
       const hashed = await bcrypt.hash(password, 10);
-      const teacher = new Teacher({ name, email, password: hashed, role: "teacher", mobile });
+      const teacher = new Teacher({
+        name,
+        email,
+        password: hashed,
+        role: "teacher",
+        mobile,
+      });
       await teacher.save();
 
       await Invitation.deleteOne({ _id: invite._id });
-      return sendResponse(res, 201, true, "Teacher onboarded", { teacherId: teacher._id });
+      return sendResponse(res, 201, true, "Teacher onboarded", {
+        teacherId: teacher._id,
+      });
     }
 
     if (targetRole === "parent") {
       const { name, password, mobile } = req.body;
-      if (!name || !password || !mobile) return sendResponse(res, 400, false, "Missing required parent fields");
+      if (!name || !password || !mobile)
+        return sendResponse(res, 400, false, "Missing required parent fields");
       const hashed = await bcrypt.hash(password, 10);
-      const parent = new Parent({ name, email, password: hashed, role: "parent", mobile });
+      const parent = new Parent({
+        name,
+        email,
+        password: hashed,
+        role: "parent",
+        mobile,
+      });
       await parent.save();
 
-      // Link children
-      const childEmails = Array.isArray(invite.childEmails) ? invite.childEmails : [];
-      const studentDocs = [];
-      for (const c of childEmails) {
-        const cLower = String(c).toLowerCase().trim();
-        const sdoc = await Student.findOne({ email: cLower });
-        if (sdoc) studentDocs.push(sdoc);
-      }
-      if (studentDocs.length > 0) {
-        const rels = studentDocs.map(sd => ({ studentId: sd._id, parentId: parent._id }));
-        try { await StudentParentRelation.insertMany(rels, { ordered: false }); } catch (e) { /* ignore dup errors */ }
-      }
+      // --- LOGIC REMOVED ---
+      // Child linking logic is no longer here.
 
       await Invitation.deleteOne({ _id: invite._id });
-      return sendResponse(res, 201, true, "Parent onboarded", { parentId: parent._id });
+      return sendResponse(res, 201, true, "Parent onboarded", {
+        parentId: parent._id,
+      });
     }
 
     return sendResponse(res, 400, false, "Unknown role");

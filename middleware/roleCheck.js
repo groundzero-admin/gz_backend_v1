@@ -18,3 +18,50 @@ export const requireStudent = (req, res, next) => {
     next();
   });
 };
+
+
+
+
+
+export const requireTeacher = (req, res, next) => {
+  requireAuthCookie(req, res, () => {
+    if (!req.authPayload || req.authPayload.role !== "teacher") 
+      return sendResponse(res, 403, false, "Teachers only");
+    next();
+  });
+};
+
+// require parent role
+export const requireParent = (req, res, next) => {
+  requireAuthCookie(req, res, () => {
+    if (!req.authPayload || req.authPayload.role !== "parent") 
+      return sendResponse(res, 403, false, "Parents only");
+    next();
+  });
+};
+
+
+
+
+
+
+
+
+
+export const requireNonStudent = (req, res, next) => {
+  requireAuthCookie(req, res, () => {
+    const role = req.authPayload?.role;
+    if (!role) {
+      return sendResponse(res, 401, false, "Invalid auth token");
+    }
+    if (role === "student") {
+      return sendResponse(res, 403, false, "Access denied for students.");
+    }
+    // Allows admin, teacher, and parent
+    if (role === "admin" || role === "teacher" || role === "parent") {
+      next();
+    } else {
+      return sendResponse(res, 403, false, "Insufficient permissions.");
+    }
+  });
+};
