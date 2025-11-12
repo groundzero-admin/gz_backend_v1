@@ -28,7 +28,7 @@ import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
 import { getWorksheetsFromCCourseForAdmin, listWorksheetsFromCCourseForStudent, uploadWorksheet } from "./controllers/workSheetController.js";
 import upload from "./middleware/uploadfile.js";
-import { getMyOldChats, getStudentChatHistory } from "./controllers/AiController.js";
+import { askQ  , getStudentFullHistory, loadChatOfSpecificWorksheet, setupChatThread } from "./controllers/AiController.js";
 
 
 // ---- Server & DB Initialization ----
@@ -147,7 +147,7 @@ app.get(
   "/api/shared/studentchathistory",
   requireAuthCookie,    // Checks for login
   requireNonStudent,    // Checks for Admin, Teacher, or Parent
-  getStudentChatHistory // Runs controller
+   // Runs controller
 );
 
 /////////////////////////////////////////////// ///////////////////     /   //////////////////////////////////////////////////////////////
@@ -198,16 +198,42 @@ app.get(
 );
 
 
-app.get(
-  "/api/student/myoldchats",
-  requireAuthCookie,
-  requireStudent,
-  getMyOldChats
-);
 
 
 // Enrollment (Student)
 app.post("/api/student/enrollment", requireStudent, enrollStudent);
+
+
+
+
+
+app.post(
+  "/api/student/setupchatthread",
+  requireAuthCookie,
+  requireStudent,
+  setupChatThread
+);
+
+
+
+app.post(
+  "/api/student/loadchatofspecificworksheet",
+  requireAuthCookie,
+  requireStudent,
+  loadChatOfSpecificWorksheet
+);
+
+
+app.post(
+  "/api/student/askq",
+  requireAuthCookie,
+  requireStudent,
+  askQ
+
+);
+
+
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -247,7 +273,16 @@ app.get(
 
 
 
+////////////// non student path 
+app.get(
+  "/api/studenthistory",
+  requireAuthCookie,
+  requireNonStudent,
+  getStudentFullHistory
 
+  
+);
+////////////////////////////////////////
 
 
 
