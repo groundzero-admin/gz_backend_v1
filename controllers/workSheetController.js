@@ -32,12 +32,76 @@ const uploadToCloudinary = (fileBuffer, options) => {
  * POST /api/admin/uploadworksheet
  * Admin-only.
  * Uploads a worksheet file and creates a DB entry.
- */
+//  */
+// export const uploadWorksheet = async (req, res) => {
+//   try {
+//     const { courseId, title, description, worksheetNumber } = req.body;
+
+//     // 1. Validate all inputs
+//     if (!req.file) {
+//       return sendResponse(res, 400, false, "No worksheet file provided.");
+//     }
+//     if (!courseId || !title || !description || worksheetNumber === undefined) {
+//       return sendResponse(res, 400, false, "Missing required fields: courseId, title, description, or worksheetNumber.");
+//     }
+
+//     // 2. Check if the Course ID is valid
+//     const course = await Course.findById(courseId);
+//     if (!course) {
+//       return sendResponse(res, 404, false, "Course not found.");
+//     }
+
+//     // 3. Upload the file to Cloudinary
+//     // We use "resource_type: 'auto'" to allow .docx, .pdf, etc.
+//     const uploadOptions = {
+//       folder: `worksheets/${courseId}`, // Organize files in Cloudinary
+//       resource_type: 'auto'
+//     };
+    
+//     const uploadResult = await uploadToCloudinary(req.file.buffer, uploadOptions);
+
+//     // 4. Create the new Worksheet document in MongoDB
+//     const newWorksheet = new Worksheet({
+//       courseId: courseId,
+//       title: title,
+//       description: description,
+//       worksheetNumber: Number(worksheetNumber),
+//       link: uploadResult.secure_url, // The URL from Cloudinary
+//     });
+
+//     await newWorksheet.save();
+
+//     // 5. Send the successful response
+//     return sendResponse(res, 201, true, "Worksheet uploaded successfully.", {
+//       worksheetId: newWorksheet._id,
+//       courseId: newWorksheet.courseId,
+//       title: newWorksheet.title,
+//       description: newWorksheet.description,
+//       worksheetNumber: newWorksheet.worksheetNumber,
+//       link: newWorksheet.link,
+//     });
+
+//   } catch (err) {
+//     console.error("uploadWorksheet err", err);
+//     if (err.message.includes('File size')) {
+//       return sendResponse(res, 400, false, "File is too large.");
+//     }
+//     return sendResponse(res, 500, false, "Server error uploading worksheet.");
+//   }
+// };
+
+
+
+
+
+
+
+
 export const uploadWorksheet = async (req, res) => {
   try {
     const { courseId, title, description, worksheetNumber } = req.body;
 
-    // 1. Validate all inputs
+    // 1️⃣ Validate inputs
     if (!req.file) {
       return sendResponse(res, 400, false, "No worksheet file provided.");
     }
@@ -45,58 +109,63 @@ export const uploadWorksheet = async (req, res) => {
       return sendResponse(res, 400, false, "Missing required fields: courseId, title, description, or worksheetNumber.");
     }
 
-    // 2. Check if the Course ID is valid
+    // 2️⃣ Validate course existence
     const course = await Course.findById(courseId);
     if (!course) {
       return sendResponse(res, 404, false, "Course not found.");
     }
 
-    // 3. Upload the file to Cloudinary
-    // We use "resource_type: 'auto'" to allow .docx, .pdf, etc.
-    const uploadOptions = {
-      folder: `worksheets/${courseId}`, // Organize files in Cloudinary
-      resource_type: 'auto'
-    };
-    
-    const uploadResult = await uploadToCloudinary(req.file.buffer, uploadOptions);
+    // 3️⃣ Upload DOCX directly as 'raw' type to Cloudinary
+    // This avoids “ZIP/folder” behavior and gives a direct downloadable link.
+    const uploadResult = await cloudinary.uploader.upload_stream(
+      {
+        folder: `worksheets/${courseId}`,
+        resource_type: "raw", // 👈 ensures direct file upload
+        use_filename: true,
+        unique_filename: false,
+        overwrite: true,
+         filename_override: req.file.originalname 
+      },
+      async (error, result) => {
+        if (error) {
+          console.error("❌ Cloudinary upload error:", error);
+          return sendResponse(res, 500, false, "Error uploading to Cloudinary.");
+        }
 
-    // 4. Create the new Worksheet document in MongoDB
-    const newWorksheet = new Worksheet({
-      courseId: courseId,
-      title: title,
-      description: description,
-      worksheetNumber: Number(worksheetNumber),
-      link: uploadResult.secure_url, // The URL from Cloudinary
-    });
+        // 4️⃣ Create worksheet record in MongoDB
+        const newWorksheet = new Worksheet({
+          courseId,
+          title,
+          description,
+          worksheetNumber: Number(worksheetNumber),
+          link: result.secure_url, // 👈 direct link to .docx
+        });
 
-    await newWorksheet.save();
+        await newWorksheet.save();
 
-    // 5. Send the successful response
-    return sendResponse(res, 201, true, "Worksheet uploaded successfully.", {
-      worksheetId: newWorksheet._id,
-      courseId: newWorksheet.courseId,
-      title: newWorksheet.title,
-      description: newWorksheet.description,
-      worksheetNumber: newWorksheet.worksheetNumber,
-      link: newWorksheet.link,
-    });
+        // 5️⃣ Respond success
+        return sendResponse(res, 201, true, "Worksheet uploaded successfully.", {
+          worksheetId: newWorksheet._id,
+          courseId: newWorksheet.courseId,
+          title: newWorksheet.title,
+          description: newWorksheet.description,
+          worksheetNumber: newWorksheet.worksheetNumber,
+          link: newWorksheet.link,
+        });
+      }
+    );
 
+    // Pipe the file buffer from multer to Cloudinary stream
+    const stream = uploadResult;
+    stream.end(req.file.buffer);
   } catch (err) {
-    console.error("uploadWorksheet err", err);
-    if (err.message.includes('File size')) {
+    console.error("❌ uploadWorksheet error:", err);
+    if (err.message.includes("File size")) {
       return sendResponse(res, 400, false, "File is too large.");
     }
     return sendResponse(res, 500, false, "Server error uploading worksheet.");
   }
 };
-
-
-
-
-
-
-
-
 
 
 
