@@ -9,6 +9,9 @@ import Worksheet from "../models/WorkSheet.js";
 import PromptHistory from '../models/promptHistory.js';
 
 import Student from "../models/Student.js";
+import StudentParentRelation from "../models/StudentParentRelation.js";
+
+
 
 // --- OpenAI Client Setup ---
 const client = new OpenAI({
@@ -416,6 +419,58 @@ export const getStudentFullHistory = async (req, res) => {
 
   } catch (err) {
     console.error("getStudentFullHistory err", err);
+    return sendResponse(res, 500, false, "Server error retrieving history.");
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+export const getMyChildHistory = async (req, res) => {
+  try {
+    // 1. Get parent's email from token
+    const parentEmail = req.authPayload.email;
+
+    // 2. Get child's email from query
+    const { childEmail } = req.query;
+    if (!childEmail) {
+      return sendResponse(res, 400, false, "childEmail is required in the query.");
+    }
+    const childEmailClean = String(childEmail).toLowerCase().trim();
+
+    // 3. STEP 1 (Verification): Check if parent is linked to this child
+    const link = await StudentParentRelation.findOne({
+      parentEmail: parentEmail,
+      studentEmail: childEmailClean
+    });
+
+    if (!link) {
+      return sendResponse(res, 403, false, "Access denied. You are not linked to this child.");
+    }
+
+    // 4. Find the student's ObjectId from their email (needed for PromptHistory)
+    const student = await Student.findOne({ email: childEmailClean }).select("_id");
+    if (!student) {
+      return sendResponse(res, 404, false, "The specified child account does not exist.");
+    }
+
+    // 5. STEP 2 (Action): Fetch all chat history for that student's ID
+    const history = await PromptHistory.find({ studentId: student._id })
+      .sort({ createdAt: 1 }) // ascending, oldest first
+      .select("prompt response isBadPrompt createdAt worksheetId"); // Include worksheetId for context
+
+    return sendResponse(res, 200, true, "Child's history retrieved.", history);
+
+  } catch (err) {
+    console.error("getChildHistory err", err);
     return sendResponse(res, 500, false, "Server error retrieving history.");
   }
 };

@@ -28,7 +28,7 @@ import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
 import { getWorksheetsFromCCourseForAdmin, listWorksheetsFromCCourseForStudent, uploadWorksheet } from "./controllers/workSheetController.js";
 import upload from "./middleware/uploadfile.js";
-import { askQ  , getStudentFullHistory, loadChatOfSpecificWorksheet, setupChatThread } from "./controllers/AiController.js";
+import { askQ  , getMyChildHistory, getStudentFullHistory, loadChatOfSpecificWorksheet, setupChatThread } from "./controllers/AiController.js";
 
 
 // ---- Server & DB Initialization ----
@@ -163,6 +163,16 @@ app.get(
   requireAuthCookie,  // Checks for login
   requireParent,      // Checks for 'parent' role
   getMyChildrenDetails // Runs controller if both pass
+);
+
+
+
+
+app.get(
+  "/api/parent/mychildhistory",
+  requireAuthCookie,
+  requireParent,
+  getMyChildHistory
 );
 
 

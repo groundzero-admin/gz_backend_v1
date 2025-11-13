@@ -245,6 +245,8 @@ export const getWorksheetsFromCCourseForAdmin = async (req, res) => {
   try {
     const { courseId } = req.query;
 
+    console.log(" course id received:", courseId);
+
     if (!courseId) {
       return sendResponse(res, 400, false, "courseId is required in the query.");
     }
