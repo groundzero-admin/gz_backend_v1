@@ -28,7 +28,7 @@ import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
 import { getWorksheetsFromCCourseForAdmin, listWorksheetsFromCCourseForStudent, uploadWorksheet } from "./controllers/workSheetController.js";
 import upload from "./middleware/uploadfile.js";
-import { askQ  , getMyChildHistory, getStudentFullHistory, loadChatOfSpecificWorksheet, setupChatThread } from "./controllers/AiController.js";
+import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
 
 
 // ---- Server & DB Initialization ----
@@ -68,6 +68,7 @@ app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
 app.get("/api/admin/listallteachers", requireAuthCookie, requireAdmin, listAllTeachers);
 app.post( "/api/admin/createcourse", requireAuthCookie, requireAdmin,  createCourse   );
 app.get(  "/api/admin/listallcourse",  requireAuthCookie, requireAdmin, listAllCourses  );
+
 
 app.post(
   "/api/admin/uploadworksheet",
@@ -142,15 +143,6 @@ app.post("/api/requestaccess", requestAccess);
 
 
 
-//////////// get student promt hiostory only for admin teacher parent , except for student ////////////////////////////////////////
-app.get(
-  "/api/shared/studentchathistory",
-  requireAuthCookie,    // Checks for login
-  requireNonStudent,    // Checks for Admin, Teacher, or Parent
-   // Runs controller
-);
-
-/////////////////////////////////////////////// ///////////////////     /   //////////////////////////////////////////////////////////////
 
 
 
@@ -227,10 +219,10 @@ app.post(
 
 
 app.post(
-  "/api/student/loadchatofspecificworksheet",
+  "/api/student/chathistory",
   requireAuthCookie,
   requireStudent,
-  loadChatOfSpecificWorksheet
+  loadMyChat
 );
 
 
