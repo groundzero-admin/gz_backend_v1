@@ -24,12 +24,13 @@ export const loginUser = async (req, res) => {
         { id: admin._id.toString(), role: "admin", email: admin.email },
         "7d"
       );
-      res.cookie("auth_token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: false,
-        maxAge: 7 * 24 * 3600 * 1000,
-      });
+     res.cookie("auth_token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 3600 * 1000,
+});
+
       return res.status(200).json({
         success: true,
         message: "Admin logged in",
@@ -47,12 +48,13 @@ export const loginUser = async (req, res) => {
         { id: student._id.toString(), role: "student", email: student.email },
         "7d"
       );
-      res.cookie("auth_token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: false,
-        maxAge: 7 * 24 * 3600 * 1000,
-      });
+    res.cookie("auth_token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 3600 * 1000,
+});
+
       return res.status(200).json({
         success: true,
         message: "Student logged in",
@@ -70,12 +72,13 @@ export const loginUser = async (req, res) => {
         { id: teacher._id.toString(), role: "teacher", email: teacher.email },
         "7d"
       );
-      res.cookie("auth_token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: false,
-        maxAge: 7 * 24 * 3600 * 1000,
-      });
+   res.cookie("auth_token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 3600 * 1000,
+});
+
       return res.status(200).json({
         success: true,
         message: "Teacher logged in",
@@ -93,12 +96,13 @@ export const loginUser = async (req, res) => {
         { id: parent._id.toString(), role: "parent", email: parent.email },
         "7d"
       );
-      res.cookie("auth_token", token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: false,
-        maxAge: 7 * 24 * 3600 * 1000,
-      });
+   res.cookie("auth_token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 3600 * 1000,
+});
+
       return res.status(200).json({
         success: true,
         message: "Parent logged in",

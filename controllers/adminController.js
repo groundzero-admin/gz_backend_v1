@@ -17,7 +17,13 @@ export const loginAdmin = async (req, res) => {
     if (!ok) return sendResponse(res, 401, false, "Invalid credentials");
 
     const token = signToken({ id: admin._id.toString(), role: "admin", email: admin.email }, "7d");
-    res.cookie("auth_token", token, { httpOnly: true, sameSite: "lax", secure: false, maxAge: 7 * 24 * 3600 * 1000 });
+   res.cookie("auth_token", token, {
+  httpOnly: true,
+  secure: true,
+  sameSite: "none",
+  maxAge: 7 * 24 * 3600 * 1000,
+});
+
     return sendResponse(res, 200, true, "Admin logged in", { email: admin.email });
   } catch (err) {
     console.error("admin login err", err);
