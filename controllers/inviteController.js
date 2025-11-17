@@ -35,6 +35,7 @@ export const createAndSendInvitation = async (email, role, req) => {
   if (used.some(Boolean)) {
     throw new Error(`Email already registered as a user.`);
   }
+  //testing purpose
 
   // --- FIX for COMPLAINT 1 ---
   // Check 2: Is an invitation *already pending*?
