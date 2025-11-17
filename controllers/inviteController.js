@@ -61,12 +61,26 @@ export const createAndSendInvitation = async (email, role, req) => {
                 <p>OTP (valid 15m): <b>${otp}</b></p>
                 <p>Validate link: <a href="${link}">${link}</a></p>`;
 
+  // --- CONSOLE LOG BEFORE SENDING ---
+  console.log("📨 Sending email via RESEND:", {
+    to: e,
+    role,
+    frontendLink: link
+  });
+
   // --- RESEND SEND MAIL ---
-  await resend.emails.send({
+  const result = await resend.emails.send({
     from: SMTP_USER,
     to: e,
     subject: `Invite as ${role}`,
     html,
+  });
+
+  // --- CONSOLE LOG AFTER SENDING ---
+  console.log("📧 RESEND EMAIL RESULT:", {
+    to: e,
+    messageId: result?.data?.id || null,
+    error: result?.error || null,
   });
 
   return inviteDoc;
