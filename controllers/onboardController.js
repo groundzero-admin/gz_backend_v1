@@ -5,7 +5,6 @@ import Student from "../models/Student.js";
 import Teacher from "../models/Teacher.js";
 import Parent from "../models/Parent.js";
 import Invitation from "../models/Invitation.js";
-import StudentParentRelation from "../models/StudentParentRelation.js";
 
 export const validateInvite = async (req, res) => {
   try {
