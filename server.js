@@ -1,6 +1,5 @@
 // server.js (Main Entry Point)
 import express from "express";
-import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import './loadenv.js'
@@ -16,18 +15,14 @@ import { requireAdmin, requireStudent , requireTeacher,
   requireNonStudent} from "./middleware/roleCheck.js";
 
 // Controller Imports
-import { getAllStudentDetails, loginAdmin } from "./controllers/adminController.js";
+import { getAllStudentDetails  } from "./controllers/adminController.js";
 import { createInvite } from "./controllers/inviteController.js";
 import { validateInvite, onboardUser } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
-import { createCourse , listAllCourses, listStudentsCourses, listTeachersCourses } from "./controllers/courseController.js";
-import { enrollStudent } from "./controllers/enrollmentController.js";
 import { requireAuthCookie } from "./middleware/auth.js";
 import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
 import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
-import { getWorksheetsFromCCourseForAdmin, listWorksheetsFromCCourseForStudent, uploadWorksheet } from "./controllers/workSheetController.js";
-import upload from "./middleware/uploadfile.js";
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
 
 
@@ -61,30 +56,13 @@ app.use(
 // ---- Route Definitions ----
 
 // Admin
-app.post("/api/admin/login", loginAdmin);
+
+
 app.post("/api/admin/invite", requireAdmin, createInvite);
 app.post("/api/admin/actionrequest", requireAdmin, actionRequest);
 app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
 app.get("/api/admin/listallteachers", requireAuthCookie, requireAdmin, listAllTeachers);
-app.post( "/api/admin/createcourse", requireAuthCookie, requireAdmin,  createCourse   );
-app.get(  "/api/admin/listallcourse",  requireAuthCookie, requireAdmin, listAllCourses  );
 
-
-app.post(
-  "/api/admin/uploadworksheet",
-  requireAuthCookie,
-  requireAdmin,
-  upload.single("worksheetFile"), // This field name must match your frontend
-  uploadWorksheet
-);
-
-
-app.get(
-  "/api/admin/worksheetfromcouse",
-  requireAuthCookie,
-  requireAdmin,
-  getWorksheetsFromCCourseForAdmin
-);
 
 
 app.get(
@@ -183,28 +161,6 @@ app.get(
 
 
 /////////////// students routes   ///////////////////////////////////////////////////////////////////////////////////////////////////
-  
-app.get(
-  "/api/student/listmycourses",
-  requireAuthCookie,  // Checks for login
-  requireStudent,     // Checks for 'student' role
-  listStudentsCourses       // Runs controller
-);
-
-
-app.get(
-  "/api/student/worksheetsfromcourse",
-  requireAuthCookie,
-  requireStudent,
-  listWorksheetsFromCCourseForStudent
-);
-
-
-
-
-// Enrollment (Student)
-app.post("/api/student/enrollment", requireStudent, enrollStudent);
-
 
 
 
@@ -246,21 +202,6 @@ app.post(
 
 
 
-
-///// teachers routes
-app.get(
-  "/api/teacher/listmycourses",
-  requireAuthCookie,      // Checks for login
-  requireTeacher,         // Checks for 'teacher' role
-  listTeachersCourses     // Runs controller
-);
-
-app.get(
-  "/api/teacher/worksheetfromcouse",
-  requireAuthCookie,
-  requireTeacher,
-  getWorksheetsFromCCourseForAdmin
-);
 
 
 app.get(

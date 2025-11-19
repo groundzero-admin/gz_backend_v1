@@ -97,77 +97,75 @@ const uploadToCloudinary = (fileBuffer, options) => {
 
 
 
-export const uploadWorksheet = async (req, res) => {
-  try {
-    const { courseId, title, description, worksheetNumber } = req.body;
+// export const uploadWorksheet = async (req, res) => {
+//   try {
+//     const { courseId, title, description, worksheetNumber } = req.body;
 
-    // 1️⃣ Validate inputs
-    if (!req.file) {
-      return sendResponse(res, 400, false, "No worksheet file provided.");
-    }
-    if (!courseId || !title || !description || worksheetNumber === undefined) {
-      return sendResponse(res, 400, false, "Missing required fields: courseId, title, description, or worksheetNumber.");
-    }
+//     // 1️⃣ Validate inputs
+//     if (!req.file) {
+//       return sendResponse(res, 400, false, "No worksheet file provided.");
+//     }
+//     if (!courseId || !title || !description || worksheetNumber === undefined) {
+//       return sendResponse(res, 400, false, "Missing required fields: courseId, title, description, or worksheetNumber.");
+//     }
 
-    // 2️⃣ Validate course existence
-    const course = await Course.findById(courseId);
-    if (!course) {
-      return sendResponse(res, 404, false, "Course not found.");
-    }
+//     // 2️⃣ Validate course existence
+//     const course = await Course.findById(courseId);
+//     if (!course) {
+//       return sendResponse(res, 404, false, "Course not found.");
+//     }
 
-    // 3️⃣ Upload DOCX directly as 'raw' type to Cloudinary
-    // This avoids “ZIP/folder” behavior and gives a direct downloadable link.
-    const uploadResult = await cloudinary.uploader.upload_stream(
-      {
-        folder: `worksheets/${courseId}`,
-        resource_type: "raw", // 👈 ensures direct file upload
-        use_filename: true,
-        unique_filename: false,
-        overwrite: true,
-         filename_override: req.file.originalname 
-      },
-      async (error, result) => {
-        if (error) {
-          console.error("❌ Cloudinary upload error:", error);
-          return sendResponse(res, 500, false, "Error uploading to Cloudinary.");
-        }
+//     // 3️⃣ Upload DOCX directly as 'raw' type to Cloudinary
+//     // This avoids “ZIP/folder” behavior and gives a direct downloadable link.
+//     const uploadResult = await cloudinary.uploader.upload_stream(
+//       {
+//         folder: `worksheets/${courseId}`,
+//         resource_type: "raw", // 👈 ensures direct file upload
+//         use_filename: true,
+//         unique_filename: false,
+//         overwrite: true,
+//          filename_override: req.file.originalname 
+//       },
+//       async (error, result) => {
+//         if (error) {
+//           console.error("❌ Cloudinary upload error:", error);
+//           return sendResponse(res, 500, false, "Error uploading to Cloudinary.");
+//         }
 
-        // 4️⃣ Create worksheet record in MongoDB
-        const newWorksheet = new Worksheet({
-          courseId,
-          title,
-          description,
-          worksheetNumber: Number(worksheetNumber),
-          link: result.secure_url, // 👈 direct link to .docx
-        });
+//         // 4️⃣ Create worksheet record in MongoDB
+//         const newWorksheet = new Worksheet({
+//           courseId,
+//           title,
+//           description,
+//           worksheetNumber: Number(worksheetNumber),
+//           link: result.secure_url, // 👈 direct link to .docx
+//         });
 
-        await newWorksheet.save();
+//         await newWorksheet.save();
 
-        // 5️⃣ Respond success
-        return sendResponse(res, 201, true, "Worksheet uploaded successfully.", {
-          worksheetId: newWorksheet._id,
-          courseId: newWorksheet.courseId,
-          title: newWorksheet.title,
-          description: newWorksheet.description,
-          worksheetNumber: newWorksheet.worksheetNumber,
-          link: newWorksheet.link,
-        });
-      }
-    );
+//         // 5️⃣ Respond success
+//         return sendResponse(res, 201, true, "Worksheet uploaded successfully.", {
+//           worksheetId: newWorksheet._id,
+//           courseId: newWorksheet.courseId,
+//           title: newWorksheet.title,
+//           description: newWorksheet.description,
+//           worksheetNumber: newWorksheet.worksheetNumber,
+//           link: newWorksheet.link,
+//         });
+//       }
+//     );
 
-    // Pipe the file buffer from multer to Cloudinary stream
-    const stream = uploadResult;
-    stream.end(req.file.buffer);
-  } catch (err) {
-    console.error("❌ uploadWorksheet error:", err);
-    if (err.message.includes("File size")) {
-      return sendResponse(res, 400, false, "File is too large.");
-    }
-    return sendResponse(res, 500, false, "Server error uploading worksheet.");
-  }
-};
-
-
+//     // Pipe the file buffer from multer to Cloudinary stream
+//     const stream = uploadResult;
+//     stream.end(req.file.buffer);
+//   } catch (err) {
+//     console.error("❌ uploadWorksheet error:", err);
+//     if (err.message.includes("File size")) {
+//       return sendResponse(res, 400, false, "File is too large.");
+//     }
+//     return sendResponse(res, 500, false, "Server error uploading worksheet.");
+//   }
+// };
 
 
 
@@ -175,61 +173,61 @@ export const uploadWorksheet = async (req, res) => {
 
 
 
-///////////// for studnets 
-export const listWorksheetsFromCCourseForStudent = async (req, res) => {
-  try {
-    const studentId = req.authPayload.id;
-    const { courseId } = req.query;
 
-    if (!courseId) {
-      return sendResponse(res, 400, false, "courseId is required in the query.");
-    }
 
-    // 1. Get all worksheets for the course
-    const worksheets = await Worksheet.find({ courseId: courseId })
-      .sort({ worksheetNumber: 1 })
-      .select("title description worksheetNumber link")
-      .lean();
+// ///////////// for studnets 
+// export const listWorksheetsFromCCourseForStudent = async (req, res) => {
+//   try {
+//     const studentId = req.authPayload.id;
+//     const { courseId } = req.query;
 
-    // 2. Get all 'read' entries for this student
-    const readEntries = await MarkAsRead.find({ studentId: studentId }).lean();
+//     if (!courseId) {
+//       return sendResponse(res, 400, false, "courseId is required in the query.");
+//     }
 
-    // 3. --- MODIFIED LOGIC ---
-    // Create a Map to store the read status (true/false) for each worksheet
-    const readStatusMap = new Map();
-    for (const entry of readEntries) {
-      readStatusMap.set(entry.worksheetId.toString(), entry.value);
-    }
-    // --- END OF MODIFICATION ---
+//     // 1. Get all worksheets for the course
+//     const worksheets = await Worksheet.find({ courseId: courseId })
+//       .sort({ worksheetNumber: 1 })
+//       .select("title description worksheetNumber link")
+//       .lean();
 
-    // 4. Combine the data
-    const finalWorksheetList = worksheets.map(ws => {
-      // --- MODIFIED LOGIC ---
-      // Get the status from the Map.
-      // If it's not in the map (undefined), it's unread, so default to 'false'.
-      // If it is in the map, use its 'value' (which could be true or false).
-      const isRead = readStatusMap.get(ws._id.toString()) || false;
-      // --- END OF MODIFICATION ---
+//     // 2. Get all 'read' entries for this student
+//     const readEntries = await MarkAsRead.find({ studentId: studentId }).lean();
+
+//     // 3. --- MODIFIED LOGIC ---
+//     // Create a Map to store the read status (true/false) for each worksheet
+//     const readStatusMap = new Map();
+//     for (const entry of readEntries) {
+//       readStatusMap.set(entry.worksheetId.toString(), entry.value);
+//     }
+//     // --- END OF MODIFICATION ---
+
+//     // 4. Combine the data
+//     const finalWorksheetList = worksheets.map(ws => {
+//       // --- MODIFIED LOGIC ---
+//       // Get the status from the Map.
+//       // If it's not in the map (undefined), it's unread, so default to 'false'.
+//       // If it is in the map, use its 'value' (which could be true or false).
+//       const isRead = readStatusMap.get(ws._id.toString()) || false;
+//       // --- END OF MODIFICATION ---
       
-      return {
-        worksheetId: ws._id,
-        title: ws.title,
-        description: ws.description,
-        worksheetNumber: ws.worksheetNumber,
-        link: ws.link,
-        isRead: isRead,
-      };
-    });
+//       return {
+//         worksheetId: ws._id,
+//         title: ws.title,
+//         description: ws.description,
+//         worksheetNumber: ws.worksheetNumber,
+//         link: ws.link,
+//         isRead: isRead,
+//       };
+//     });
 
-    return sendResponse(res, 200, true, "Worksheets retrieved successfully.", finalWorksheetList);
+//     return sendResponse(res, 200, true, "Worksheets retrieved successfully.", finalWorksheetList);
 
-  } catch (err) {
-    console.error("listWorksheetsForCourse err", err);
-    return sendResponse(res, 500, false, "Server error retrieving worksheets.");
-  }
-};
-
-
+//   } catch (err) {
+//     console.error("listWorksheetsForCourse err", err);
+//     return sendResponse(res, 500, false, "Server error retrieving worksheets.");
+//   }
+// };
 
 
 
@@ -240,36 +238,38 @@ export const listWorksheetsFromCCourseForStudent = async (req, res) => {
 
 
 
-////////////////////    for admin and teacher both  only 
-export const getWorksheetsFromCCourseForAdmin = async (req, res) => {
-  try {
-    const { courseId } = req.query;
 
-    console.log(" course id received:", courseId);
 
-    if (!courseId) {
-      return sendResponse(res, 400, false, "courseId is required in the query.");
-    }
+// ////////////////////    for admin and teacher both  only 
+// export const getWorksheetsFromCCourseForAdmin = async (req, res) => {
+//   try {
+//     const { courseId } = req.query;
 
-    // 1. Find all worksheets for the course
-    const worksheets = await Worksheet.find({ courseId: courseId })
-      .sort({ worksheetNumber: 1 }) // Sort them by number
-      .select("title description worksheetNumber link") // Select only these fields
-      .lean();
+//     console.log(" course id received:", courseId);
 
-    // 2. Format the response to be consistent
-    const formattedWorksheets = worksheets.map(ws => ({
-      worksheetId: ws._id,
-      title: ws.title,
-      description: ws.description,
-      worksheetNumber: ws.worksheetNumber,
-      link: ws.link
-    }));
+//     if (!courseId) {
+//       return sendResponse(res, 400, false, "courseId is required in the query.");
+//     }
+
+//     // 1. Find all worksheets for the course
+//     const worksheets = await Worksheet.find({ courseId: courseId })
+//       .sort({ worksheetNumber: 1 }) // Sort them by number
+//       .select("title description worksheetNumber link") // Select only these fields
+//       .lean();
+
+//     // 2. Format the response to be consistent
+//     const formattedWorksheets = worksheets.map(ws => ({
+//       worksheetId: ws._id,
+//       title: ws.title,
+//       description: ws.description,
+//       worksheetNumber: ws.worksheetNumber,
+//       link: ws.link
+//     }));
       
-    return sendResponse(res, 200, true, "Worksheets retrieved successfully.", formattedWorksheets);
+//     return sendResponse(res, 200, true, "Worksheets retrieved successfully.", formattedWorksheets);
 
-  } catch (err) {
-    console.error("getWorksheetsForCourse err", err);
-    return sendResponse(res, 500, false, "Server error retrieving worksheets.");
-  }
-};
+//   } catch (err) {
+//     console.error("getWorksheetsForCourse err", err);
+//     return sendResponse(res, 500, false, "Server error retrieving worksheets.");
+//   }
+// };
