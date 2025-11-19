@@ -17,7 +17,7 @@ export const validateInvite = async (req, res) => {
 
     const invite = await Invitation.findOne({ token });
     if (!invite) return sendResponse(res, 404, false, "Invitation not found");
-    if (invite.expiresAt < new Date()) return sendResponse(res, 410, false, "Invitation expired");
+    // if (invite.expiresAt < new Date()) return sendResponse(res, 410, false, "Invitation expired");
     if (role != invite.role) return sendResponse(res, 400, false, "Role mismatch");
     
     return sendResponse(res, 200, true, "Valid invitation", { email: invite.email, role: invite.role });
@@ -48,8 +48,8 @@ export const onboardUser = async (req, res) => {
 
     const invite = await Invitation.findOne({ token });
     if (!invite) return sendResponse(res, 404, false, "Invitation not found");
-    if (invite.expiresAt < new Date())
-      return sendResponse(res, 410, false, "Invitation expired");
+    // if (invite.expiresAt < new Date())
+    //   return sendResponse(res, 410, false, "Invitation expired");
     if (String(invite.otp) !== String(otp))
       return sendResponse(res, 400, false, "Invalid OTP");
 

@@ -42,14 +42,14 @@ export const createAndSendInvitation = async (email, role, req) => {
   // Create new invitation
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const token = signToken({ email: e, role }, "60m");
-  const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+  // const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
   const inviteDoc = new Invitation({
     email: e,
     role,
     otp,
     token,
-    expiresAt,
+    // expiresAt,
   });
   await inviteDoc.save();
 

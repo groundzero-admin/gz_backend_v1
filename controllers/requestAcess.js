@@ -95,14 +95,14 @@ export const createAndSendInvitation = async (email, role, req, parentEmails = [
 
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
   const token = signToken({ email: e, role }, "15m");
-  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+  // const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
   const inviteDoc = new Invitation({
     email: e,
     role,
     otp,
     token,
-    expiresAt,
+    // expiresAt,
     parentEmails: Array.isArray(parentEmails)
       ? parentEmails.map(x => String(x).toLowerCase().trim())
       : [],

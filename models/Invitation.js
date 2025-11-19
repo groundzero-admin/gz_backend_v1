@@ -4,7 +4,6 @@ const invitationSchema = new mongoose.Schema({
   role: String, // student|teacher|parent
   otp: String,
   token: String,
-  expiresAt: Date,
   parentEmails: { type: [String], default: [] }, // admin prelinks
   childEmails: { type: [String], default: [] }   // admin prelinks
 });
