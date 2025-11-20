@@ -42,9 +42,9 @@ export const createBatch = async (req, res) => {
     }
 
     const dateObj = new Date(startDate);
-    if (dateObj.getDay() !== 1) {
-      return sendResponse(res, 400, false, "Start Date must be a Monday.");
-    }
+    // if (dateObj.getDay() !== 1) {
+    //   return sendResponse(res, 400, false, "Start Date must be a Monday.");
+    // }
 
     const cohortLower = String(cohort).toLowerCase().trim();
     const levelLower = String(level).toLowerCase().trim();
@@ -678,77 +678,60 @@ export const getWeeksForBatchStudent = async (req, res) => {
 
 
 ////////////// student asking for today live batch info class time is class or not like that 
+
 export const getTodaysLiveBatchInfo = async (req, res) => {
   try {
-    // 1. Get inputs
     const studentId = req.authPayload.id;
     const { batch_obj_id } = req.body;
 
-    if (!batch_obj_id) {
-      return sendResponse(res, 400, false, "batch_obj_id is required in the body.");
-    }
+    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    // 2. Security: Verify Enrollment
+    // 1. Verify Enrollment
     const isEnrolled = await BatchStudentRelation.exists({
       student_obj_id: studentId,
       batch_obj_id: batch_obj_id
     });
+    if (!isEnrolled) return sendResponse(res, 403, false, "Access denied.");
 
-    if (!isEnrolled) {
-      return sendResponse(res, 403, false, "Access denied. You are not enrolled in this batch.");
-    }
-
-    // 3. Fetch Batch Data (Need StartDate and Location)
-    const batch = await Batch.findById(batch_obj_id).select("batchId startDate classLocation cohort level");
-    if (!batch) {
-      return sendResponse(res, 404, false, "Batch not found.");
-    }
-
-    // 4. --- DATE MATH LOGIC ---
+    const batch = await Batch.findById(batch_obj_id);
     
-    // Current Date (normalized to midnight to ignore time)
+    // 2. Normalize Dates (Midnight)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    // Start Date (normalized to midnight)
     const start = new Date(batch.startDate);
     start.setHours(0, 0, 0, 0);
 
-    // Difference in milliseconds
+    // 3. Calculate Diff
     const diffTime = today.getTime() - start.getTime();
-    
-    // Difference in Days
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
-    // Handle case where batch hasn't started yet
     if (diffDays < 0) {
-      return sendResponse(res, 200, true, "Batch has not started yet.", {
-        hasClassToday: false,
-        message: "Batch is upcoming",
-        batchDetails: batch
-      });
+      return sendResponse(res, 200, true, "Batch upcoming.", { hasClassToday: false });
     }
 
-    // Apply your formulas
-    // Week 1 starts at day 0. Week 2 starts at day 7.
-    const currentWeekNumber = 1 + Math.floor(diffDays / 7);
-    
-    // Since StartDate is ALWAYS Monday (1), logic is: 
-    // Day 0 diff = Monday (1)
-    // Day 1 diff = Tuesday (2) ...
-    const currentDayNumber = 1 + (diffDays % 7); 
+    // 4. Calculate Shift (This makes it work for ANY start day)
+    // Convert JS day (Sun=0...Sat=6) to ISO (Mon=1...Sun=7)
+    let startDayIndex = start.getDay(); 
+    if (startDayIndex === 0) startDayIndex = 7; 
+    const shift = startDayIndex - 1;
 
-    // 5. Fetch the specific Week Data from DB
+    // 5. Calculate Week Number
+    const currentWeekNumber = 1 + Math.floor((diffDays + shift) / 7);
+
+    // 6. Calculate Today's Day Number (Mon=1 ... Sun=7)
+    let currentDayNumber = today.getDay();
+    if (currentDayNumber === 0) currentDayNumber = 7;
+
+    // 7. DB Lookup
     const weekData = await BatchWeek.findOne({
       batch_obj_id: batch_obj_id,
       week_number: currentWeekNumber
     });
 
-    // 6. Determine if class exists today
+    // 8. Check Class Status
     let hasClassToday = false;
     let classInfo = null;
 
-    // If week data exists AND today's day number is in the class_days array
     if (weekData && weekData.class_days.includes(currentDayNumber)) {
       hasClassToday = true;
       classInfo = {
@@ -759,35 +742,20 @@ export const getTodaysLiveBatchInfo = async (req, res) => {
       };
     }
 
-    // 7. Construct Final Response
-    const responseData = {
-      hasClassToday: hasClassToday,
-      currentDate: today.toDateString(),
+    // 9. Response
+    return sendResponse(res, 200, true, "Info retrieved.", {
+      hasClassToday,
       calculatedWeek: currentWeekNumber,
       calculatedDay: currentDayNumber, // 1=Mon, 7=Sun
-      
-      // Batch Static Info
       batchId: batch.batchId,
-      location: batch.classLocation,
-      cohort: batch.cohort,
-      level: batch.level,
-      startDate: batch.startDate,
-
-      // Today's Specific Class Info (if any)
-      ...(hasClassToday ? classInfo : { message: "No class scheduled for today." })
-    };
-
-    return sendResponse(res, 200, true, "Today's batch info retrieved.", responseData);
+      ...(hasClassToday ? classInfo : { message: "No class today." })
+    });
 
   } catch (err) {
     console.error("getTodaysLiveBatchInfo err", err);
-    return sendResponse(res, 500, false, "Server error calculating batch info.");
+    return sendResponse(res, 500, false, "Server error.");
   }
 };
-
-
-
-
 
 
 
