@@ -24,7 +24,7 @@ import { actionRequest, getAllAccessRequests, requestAccess } from "./controller
 import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
-
+import { createBatch, createBatchWeek, getAllBatchesForStudent, getMyEnrolledBatches, getMyLiveBatches, getStudentsInBatch, getTodaysLiveBatchInfo, getWeeksForABatch, getWeeksForBatchStudent, linkStudentToBatch, listAllActiveBatches, updateBatchStatus } from "./controllers/BatchController.js";
 
 // ---- Server & DB Initialization ----
 
@@ -73,6 +73,73 @@ app.get(
 );
 
 
+
+
+
+
+
+app.post(
+  "/api/admin/createCourse", 
+  requireAuthCookie, 
+  requireAdmin, 
+  createBatch
+);
+
+
+app.post(
+  "/api/admin/linkstudentinabatch", 
+  requireAuthCookie, 
+  requireAdmin, 
+  linkStudentToBatch
+);
+
+
+app.post(
+  "/api/admin/updatebatchstatus", 
+  requireAuthCookie, 
+  requireAdmin, 
+  updateBatchStatus
+);
+
+
+
+app.post(
+  "/api/admin/createbatchweek", 
+  requireAuthCookie, 
+  requireAdmin, 
+  createBatchWeek
+);
+
+
+
+//////////////////////////////////// returns live and upcoming batches 
+app.get(
+  "/api/admin/listallbatches",
+  requireAuthCookie,
+  requireAdmin,
+  listAllActiveBatches
+);
+
+// V-- NEW GET ROUTE: Get weeks for a specific batch
+app.get(
+  "/api/admin/weekinforabatch",
+  requireAuthCookie,
+  requireAdmin,
+  getWeeksForABatch
+);
+
+
+app.get(
+  "/api/admin/getstudentsinbatch", 
+  requireAuthCookie, 
+  requireAdmin, 
+  getStudentsInBatch
+);
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -192,6 +259,46 @@ app.post(
 
 
 
+app.get(
+  "/api/student/mylivebatchlist",
+  requireAuthCookie,
+  requireStudent,
+  getMyLiveBatches
+);
+
+
+app.get(
+  "/api/student/myenrolledbatches",
+  requireAuthCookie,
+  requireStudent,
+  getMyEnrolledBatches
+);
+
+
+
+app.get(
+  "/api/student/getallbatches",
+  requireAuthCookie,
+  requireStudent,
+  getAllBatchesForStudent
+);
+
+
+
+app.get(
+  "/api/student/weeksinfoofbatch",
+  requireAuthCookie,
+  requireStudent,
+  getWeeksForBatchStudent
+);
+
+
+app.post(
+  "/api/student/todayslivebatchinfo",
+  requireAuthCookie,
+  requireStudent,
+  getTodaysLiveBatchInfo
+);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
