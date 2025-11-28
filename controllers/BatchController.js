@@ -784,6 +784,8 @@ export const getTodaysLiveBatchInfo = async (req, res) => {
     }
     // ----------------------------------------
 
+    
+
     // 9. Response
     return sendResponse(res, 200, true, "Info retrieved.", {
       hasClassToday,
