@@ -678,7 +678,6 @@ export const getWeeksForBatchStudent = async (req, res) => {
 
 
 ////////////// student asking for today live batch info class time is class or not like that 
-
 export const getTodaysLiveBatchInfo = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
@@ -706,29 +705,27 @@ export const getTodaysLiveBatchInfo = async (req, res) => {
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
+      // Logic for upcoming batches could be added here to find the very first class
       return sendResponse(res, 200, true, "Batch upcoming.", { hasClassToday: false });
     }
 
-    // 4. Calculate Shift (This makes it work for ANY start day)
-    // Convert JS day (Sun=0...Sat=6) to ISO (Mon=1...Sun=7)
+    // 4. Calculate Shift (Mon=1...Sun=7)
     let startDayIndex = start.getDay(); 
     if (startDayIndex === 0) startDayIndex = 7; 
     const shift = startDayIndex - 1;
 
-    // 5. Calculate Week Number
+    // 5. Calculate Current Week & Day
     const currentWeekNumber = 1 + Math.floor((diffDays + shift) / 7);
-
-    // 6. Calculate Today's Day Number (Mon=1 ... Sun=7)
     let currentDayNumber = today.getDay();
     if (currentDayNumber === 0) currentDayNumber = 7;
 
-    // 7. DB Lookup
+    // 6. DB Lookup for Today
     const weekData = await BatchWeek.findOne({
       batch_obj_id: batch_obj_id,
       week_number: currentWeekNumber
     });
 
-    // 8. Check Class Status
+    // 7. Check Class Status Today
     let hasClassToday = false;
     let classInfo = null;
 
@@ -742,12 +739,58 @@ export const getTodaysLiveBatchInfo = async (req, res) => {
       };
     }
 
+    // --- NEW LOGIC: FIND NEXT CLASS DATE ---
+    let nextClassDate = null;
+    let daysToCheck = 1; // Start checking from tomorrow
+    let maxDaysLookahead = 30; // Safety break (e.g., look ahead 1 month max)
+    
+    // We need to cache week data to avoid excessive DB calls
+    // Initialize with current week data we already fetched
+    const weekDataCache = {}; 
+    if(weekData) weekDataCache[currentWeekNumber] = weekData;
+
+    while (daysToCheck <= maxDaysLookahead) {
+      // Calculate future date specifics
+      const futureTotalDays = diffDays + daysToCheck;
+      const futureWeekNum = 1 + Math.floor((futureTotalDays + shift) / 7);
+      
+      // Calculate future day of week (1-7)
+      // We can use the date object to be precise
+      const futureDateObj = new Date(today);
+      futureDateObj.setDate(today.getDate() + daysToCheck);
+      let futureDayNum = futureDateObj.getDay();
+      if (futureDayNum === 0) futureDayNum = 7;
+
+      // Check if we have this week's data in cache, if not, fetch it
+      let futureWeekData = weekDataCache[futureWeekNum];
+      
+      if (futureWeekData === undefined) {
+        // Fetch from DB
+        futureWeekData = await BatchWeek.findOne({
+          batch_obj_id: batch_obj_id,
+          week_number: futureWeekNum
+        });
+        // Cache it (even if null, to avoid re-fetching)
+        weekDataCache[futureWeekNum] = futureWeekData;
+      }
+
+      // If week exists and has class on this day
+      if (futureWeekData && futureWeekData.class_days.includes(futureDayNum)) {
+        nextClassDate = futureDateObj.toDateString(); // Found it!
+        break; // Stop loop
+      }
+
+      daysToCheck++;
+    }
+    // ----------------------------------------
+
     // 9. Response
     return sendResponse(res, 200, true, "Info retrieved.", {
       hasClassToday,
       calculatedWeek: currentWeekNumber,
-      calculatedDay: currentDayNumber, // 1=Mon, 7=Sun
+      calculatedDay: currentDayNumber,
       batchId: batch.batchId,
+      nextClassDate: nextClassDate, // <--- New Field
       ...(hasClassToday ? classInfo : { message: "No class today." })
     });
 
@@ -756,7 +799,6 @@ export const getTodaysLiveBatchInfo = async (req, res) => {
     return sendResponse(res, 500, false, "Server error.");
   }
 };
-
 
 
 
