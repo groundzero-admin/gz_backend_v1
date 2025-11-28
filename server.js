@@ -22,7 +22,7 @@ import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authCo
 import { requireAuthCookie } from "./middleware/auth.js";
 import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
 import { getMyChildrenDetails } from "./controllers/parentController.js";
-import { listAllTeachers, listMyStudents } from "./controllers/teacherController.js";
+import { getBatchAndWeekDetailsForTeacher, getLiveBatchInfoTeacher, getTodaysLiveBatchesForTeacher, listAllTeachers  } from "./controllers/teacherController.js";
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
 import { createBatch, createBatchWeek, getAllBatchesForStudent, getMyEnrolledBatches, getMyLiveBatches, getStudentsInBatch, getTodaysLiveBatchInfo, getWeeksForABatch, getWeeksForBatchStudent, linkStudentToBatch, listAllActiveBatches, updateBatchStatus } from "./controllers/BatchController.js";
 
@@ -312,11 +312,33 @@ app.post(
 
 
 app.get(
-  "/api/teacher/listmystudent",
+  "/api/teacher/getlivebatchinfo",
   requireAuthCookie,
   requireTeacher,
-  listMyStudents
+  getLiveBatchInfoTeacher
 );
+
+app.get(
+  "/api/teacher/todayslivebatchinfo",
+  requireAuthCookie,
+  requireTeacher,
+  getTodaysLiveBatchesForTeacher
+);
+
+
+
+app.get(
+  "/api/teacher/batchdetails",
+  requireAuthCookie,
+  requireTeacher,
+  getBatchAndWeekDetailsForTeacher
+);
+
+
+
+
+
+
 
 
 
