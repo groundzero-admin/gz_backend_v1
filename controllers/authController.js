@@ -130,8 +130,21 @@ export const loginUser = async (req, res) => {
 
 
 
+// export const logoutUser = (req, res) => {
+//   res.clearCookie("auth_token");
+//   return sendResponse(res, 200, true, "Logged out");
+// };
+
+
+
 export const logoutUser = (req, res) => {
-  res.clearCookie("auth_token");
+  res.clearCookie("auth_token", {
+    httpOnly: true,
+    secure: true,
+    sameSite: "none",
+    path: "/", // VERY IMPORTANT
+  });
+
   return sendResponse(res, 200, true, "Logged out");
 };
 
