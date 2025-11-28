@@ -216,16 +216,17 @@ export const checkRole = async (req, res) => {
       let user;
       if (actualRole === 'admin') user = await Admin.findById(userId).select("name");
       else if (actualRole === 'student') user = await Student.findById(userId).select("name  student_number");
-      else if (actualRole === 'teacher') user = await Teacher.findById(userId).select("name");
+      else if (actualRole === 'teacher') user = await Teacher.findById(userId).select("name teacher_number");
       else if (actualRole === 'parent') user = await Parent.findById(userId).select("name");
       
       const username = user ? user.name : "Unknown"; // Fallback
+      const user_number =  actualRole == 'student' ?  user.student_number  :  actualRole == 'teacher' ? user.teacher_number : "missing number" ;   
 
       return sendResponse(res, 200, true, "Role verified.", {
         username: username,
         role: actualRole,
         email: userEmail,
-        student_number :  user.student_number ? user.student_number : "missing student roll number" 
+        user_number : user_number 
 
       });
 
