@@ -26,6 +26,14 @@ import { getBatchAndWeekDetailsForTeacher, getLiveBatchInfoTeacher, getTodaysLiv
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
 import { createBatch, createBatchWeek, getAllBatchesForStudent, getMyEnrolledBatches, getMyLiveBatches, getStudentsInBatch, getTodaysLiveBatchInfo, getWeeksForABatch, getWeeksForBatchStudent, linkStudentToBatch, listAllActiveBatches, updateBatchStatus } from "./controllers/BatchController.js";
 
+
+import { 
+  raiseDoubt, 
+  getMyDoubts, 
+  getUnresolvedDoubts, 
+  resolveDoubt 
+} from "./controllers/doubtController.js";
+
 // ---- Server & DB Initialization ----
 
 
@@ -358,6 +366,53 @@ app.get(
 
 
 
+
+
+
+
+
+
+
+
+// --- Doubt Routes (Student) ---//////////////////////////////////////////////////////////
+app.post(
+  "/api/student/raisedoubt",
+  requireAuthCookie,
+  requireStudent,
+  raiseDoubt
+);
+
+app.get(
+  "/api/student/mydoubts",
+  requireAuthCookie,
+  requireStudent,
+  getMyDoubts
+);
+
+// --- Doubt Routes (Teacher) ---
+app.get(
+  "/api/teacher/unresolveddoubts",
+  requireAuthCookie,
+  requireTeacher,
+  getUnresolvedDoubts
+);
+
+app.post(
+  "/api/teacher/resolvedoubt",
+  requireAuthCookie,
+  requireTeacher,
+  resolveDoubt
+);
+
+//////////////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+
+app.get("/test", (req, res) => res.send("yes server is on"));
 
 
 // ---- Server Start ----
