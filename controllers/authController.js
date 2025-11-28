@@ -149,7 +149,7 @@ export const whoAmI = async (req, res) => {
     if (role === 'admin') {
       user = await Admin.findById(id).select("name email role");
     } else if (role === 'student') {
-      user = await Student.findById(id).select("name email role");
+      user = await Student.findById(id).select("name email role student_number");
     } else if (role === 'teacher') {
       user = await Teacher.findById(id).select("name email role");
     } else if (role === 'parent') {
@@ -215,7 +215,7 @@ export const checkRole = async (req, res) => {
       // Fetch user's name for the response data
       let user;
       if (actualRole === 'admin') user = await Admin.findById(userId).select("name");
-      else if (actualRole === 'student') user = await Student.findById(userId).select("name");
+      else if (actualRole === 'student') user = await Student.findById(userId).select("name  student_number");
       else if (actualRole === 'teacher') user = await Teacher.findById(userId).select("name");
       else if (actualRole === 'parent') user = await Parent.findById(userId).select("name");
       
@@ -225,6 +225,8 @@ export const checkRole = async (req, res) => {
         username: username,
         role: actualRole,
         email: userEmail,
+        student_number :  user.student_number ? user.student_number : "missing student roll number" 
+
       });
 
     } else {
