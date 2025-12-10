@@ -22,10 +22,25 @@ import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authCo
 import { requireAuthCookie } from "./middleware/auth.js";
 import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
 import { getMyChildrenDetails } from "./controllers/parentController.js";
-import { getBatchAndWeekDetailsForTeacher, getLiveBatchInfoTeacher, getTodaysLiveBatchesForTeacher, listAllTeachers  } from "./controllers/teacherController.js";
+import { getBatchAndSessionDetailsForTeacher , getLiveBatchInfoTeacher, getTodaysLiveBatchesForTeacher, listAllTeachers  } from "./controllers/teacherController.js";
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
-import { createBatch, createBatchWeek, getAllBatchesForStudent, getMyEnrolledBatches, getMyLiveBatches, getStudentsInBatch, getTodaysLiveBatchInfo, getWeeksForABatch, getWeeksForBatchStudent, linkStudentToBatch, listAllActiveBatches, updateBatchStatus } from "./controllers/BatchController.js";
 
+
+import {
+  createBatchForAdmin,
+  linkStudentToBatchForAdmin,
+  updateBatchStatusForAdmin,
+  createSessionInsideABatchForAdmin,
+  listAllActiveBatchesForAdmin,
+  getSessionForABatchForAdmin,
+  getStudentInSBatchForAdmin,
+  updateSessionDetailsForAdmin , 
+
+  // Student
+  myLiveBatchesForStudent,
+  getSessionForABatchForStudent,
+  getTodayLiveBatchInfoForStudent
+} from "./controllers/BatchController.js";
 
 import { 
   raiseDoubt, 
@@ -83,66 +98,45 @@ app.get(
 
 
 
+// 1. Create a new Batch
+app.post("/api/admin/createbatch", requireAuthCookie, requireAdmin, createBatchForAdmin);
+
+// 2. Link Student to Batch
+app.post("/api/admin/linkstudenttobatch", requireAuthCookie, requireAdmin, linkStudentToBatchForAdmin);
+
+// 3. Update Status (Upcoming/Live/Ended)
+app.post("/api/admin/updatebatchstatus", requireAuthCookie, requireAdmin, updateBatchStatusForAdmin);
+
+// 4. Create Session in Batch
+app.post("/api/admin/createsession", requireAuthCookie, requireAdmin, createSessionInsideABatchForAdmin);
 
 
-
-app.post(
-  "/api/admin/createCourse", 
-  requireAuthCookie, 
-  requireAdmin, 
-  createBatch
-);
-
-
-app.post(
-  "/api/admin/linkstudentinabatch", 
-  requireAuthCookie, 
-  requireAdmin, 
-  linkStudentToBatch
-);
-
-
-app.post(
-  "/api/admin/updatebatchstatus", 
-  requireAuthCookie, 
-  requireAdmin, 
-  updateBatchStatus
-);
-
-
-
-app.post(
-  "/api/admin/createbatchweek", 
-  requireAuthCookie, 
-  requireAdmin, 
-  createBatchWeek
-);
-
-
-
-//////////////////////////////////// returns live and upcoming batches 
-app.get(
-  "/api/admin/listallbatches",
+app.put(
+  "/api/admin/update-session",
   requireAuthCookie,
-  requireAdmin,
-  listAllActiveBatches
-);
-
-// V-- NEW GET ROUTE: Get weeks for a specific batch
-app.get(
-  "/api/admin/weekinforabatch",
-  requireAuthCookie,
-  requireAdmin,
-  getWeeksForABatch
+  // requireAdmin, 
+  updateSessionDetailsForAdmin
 );
 
 
-app.get(
-  "/api/admin/getstudentsinbatch", 
-  requireAuthCookie, 
-  requireAdmin, 
-  getStudentsInBatch
-);
+
+// 5. List All Active Batches
+app.get("/api/admin/listallactivebatches", requireAuthCookie, requireAdmin, listAllActiveBatchesForAdmin);
+
+// 6. Get Sessions for a Batch
+app.get("/api/admin/getsessionforabatch", requireAuthCookie, requireAdmin, getSessionForABatchForAdmin);
+
+// 7. Get Students in a Batch
+app.get("/api/admin/getstudentofabatch", requireAuthCookie, requireAdmin, getStudentInSBatchForAdmin);
+
+
+
+
+
+
+
+
+
 
 
 
@@ -267,46 +261,26 @@ app.post(
 
 
 
-app.get(
-  "/api/student/mylivebatchlist",
-  requireAuthCookie,
-  requireStudent,
-  getMyLiveBatches
-);
-
-
-app.get(
-  "/api/student/myenrolledbatches",
-  requireAuthCookie,
-  requireStudent,
-  getMyEnrolledBatches
-);
 
 
 
-app.get(
-  "/api/student/getallbatches",
-  requireAuthCookie,
-  requireStudent,
-  getAllBatchesForStudent
-);
 
 
 
-app.get(
-  "/api/student/weeksinfoofbatch",
-  requireAuthCookie,
-  requireStudent,
-  getWeeksForBatchStudent
-);
 
 
-app.post(
-  "/api/student/todayslivebatchinfo",
-  requireAuthCookie,
-  requireStudent,
-  getTodaysLiveBatchInfo
-);
+
+
+// ================= STUDENT ROUTES =================
+
+// 1. My Live Batches
+app.get("/api/student/mylivebatches", requireAuthCookie, requireStudent, myLiveBatchesForStudent);
+
+// 2. Get Sessions for a Batch (Enrolled only)
+app.get("/api/student/getsessionforabatch", requireAuthCookie, requireStudent, getSessionForABatchForStudent);
+
+// 3. Today's Batch Info (Class today? Next class?)
+app.post("/api/student/gettodaylivebatchinfo", requireAuthCookie, requireStudent, getTodayLiveBatchInfoForStudent);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -318,7 +292,7 @@ app.post(
 
 
 
-
+////////////////////////////////////////////  teeacher 
 app.get(
   "/api/teacher/getlivebatchinfo",
   requireAuthCookie,
@@ -336,10 +310,10 @@ app.get(
 
 
 app.get(
-  "/api/teacher/batchdetails",
+  "/api/teacher/batchdetails", 
   requireAuthCookie,
   requireTeacher,
-  getBatchAndWeekDetailsForTeacher
+  getBatchAndSessionDetailsForTeacher
 );
 
 

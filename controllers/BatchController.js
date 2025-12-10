@@ -1,17 +1,13 @@
 import Batch from "../models/Batch.js";
 import BatchCounter from "../models/BatchCounter.js";
-import BatchStatus from "../models/BatchStatus.js"; // <-- IMPORT NEW MODEL
-import Student from "../models/Student.js"; 
-import BatchStudentRelation from "../models/BatchStudentRelation.js"; 
+import BatchStatus from "../models/BatchStatus.js";
+import BatchSession from "../models/BatchSession.js";
+import BatchStudentRelation from "../models/BatchStudentRelation.js";
+import Student from "../models/Student.js";
 import { sendResponse } from "../middleware/auth.js";
-import BatchWeek from "../models/BatchWeek.js";
-
-
-
-
 
 // --- Helper to generate ID ---
-const getNextbatchId = async (cohortCode, levelCode) => {
+const getNextBatchId = async (cohortCode, levelCode) => {
   const key = `${cohortCode}${levelCode}`;
   const counter = await BatchCounter.findOneAndUpdate(
     { key: key },
@@ -22,30 +18,39 @@ const getNextbatchId = async (cohortCode, levelCode) => {
   return `${key}${paddedCount}`;
 };
 
-// ---------------------------------------------------------
-// 1. UPDATED CREATE BATCH (Creates Batch + BatchStatus)
-// ---------------------------------------------------------
-export const createBatch = async (req, res) => {
+// ==========================================
+//              ADMIN CONTROLLERS
+// ==========================================
+
+/**
+ * Controller: createBatchForAdmin
+ * Input: { cohort, level, description, type, startDate, batchType, citycode (if offline), classLocation (if offline) }
+ * Output: Created Batch object with initial status
+ */
+export const createBatchForAdmin = async (req, res) => {
   try {
     const { 
-      cohort, 
-      level, 
-      description, 
-      citycode, 
-      type, 
-      startDate, 
-      classLocation 
+      cohort, level, description, type, startDate, batchType, 
+      citycode, classLocation 
     } = req.body;
 
-    if (!cohort || !level || !citycode || !type || !startDate || !classLocation) {
+    if (!cohort || !level || !startDate || !batchType) {
       return sendResponse(res, 400, false, "Missing required fields.");
     }
 
-    const dateObj = new Date(startDate);
-    // if (dateObj.getDay() !== 1) {
-    //   return sendResponse(res, 400, false, "Start Date must be a Monday.");
-    // }
+    const batchTypeClean = String(batchType).toUpperCase().trim();
+    let finalCityCode = "", finalLocation = "Online";
 
+    // Online/Offline Validation
+    if (batchTypeClean === 'OFFLINE') {
+      if (!citycode || !classLocation) {
+        return sendResponse(res, 400, false, "OFFLINE batches require citycode and classLocation.");
+      }
+      finalCityCode = citycode;
+      finalLocation = classLocation;
+    }
+
+    // Generate Codes
     const cohortLower = String(cohort).toLowerCase().trim();
     const levelLower = String(level).toLowerCase().trim();
     const typeInput = String(type).toLowerCase().trim();
@@ -55,787 +60,401 @@ export const createBatch = async (req, res) => {
     else if (cohortLower === "blaze") cohortCode = "BZ";
     else if (cohortLower === "ignite") cohortCode = "IG";
     else if (cohortLower === "inferno") cohortCode = "IN";
-    else return sendResponse(res, 400, false, "Invalid cohort name.");
+    else return sendResponse(res, 400, false, "Invalid cohort.");
 
     let levelCode = "";
     if (levelLower === "alpha") levelCode = "A";
     else if (levelLower === "beta") levelCode = "B";
     else if (levelLower === "gamma") levelCode = "C";
-    else return sendResponse(res, 400, false, "Invalid level name.");
+    else return sendResponse(res, 400, false, "Invalid level.");
 
     let typeChar = "";
-    if (typeInput === "society") typeChar = "C";
+    if (['s', 'c', 'i'].includes(typeInput)) typeChar = typeInput.toUpperCase();
+    else if (typeInput === "society") typeChar = "C";
     else if (typeInput === "school") typeChar = "S";
     else if (typeInput === "individual") typeChar = "I";
-    else if (['s', 'c', 'i'].includes(typeInput)) typeChar = typeInput.toUpperCase(); 
-    else return sendResponse(res, 400, false, "Invalid type. Use Society, School, or Individual.");
+    else if (batchTypeClean === "OFFLINE") 
+      return sendResponse(res, 400, false, "Invalid type.");
 
-    const batchId = await getNextbatchId(cohortCode, levelCode);
+    const batchId = await getNextBatchId(cohortCode, levelCode);
 
-    // --- A. Create the Batch ---
-    const newBatch = await Batch.create({
+    // Build payload depending on ONLINE or OFFLINE
+    let batchPayload = {
       batchId,
       cohort: cohortLower,
       level: levelLower,
-      classLocation,
-      cityCode: citycode,
-      startDate: dateObj,
-      type: typeChar,
+      startDate: new Date(startDate),
+      batchType: batchTypeClean,
       description: description || ""
-    });
+    };
 
-    // --- B. Create the BatchStatus (Default: UPCOMING) ---
+    if (batchTypeClean === "OFFLINE") {
+      batchPayload.type = typeChar;
+      batchPayload.classLocation = finalLocation;
+      batchPayload.cityCode = finalCityCode;
+    } else {
+      // ONLINE — Ignore these fields
+      batchPayload.type = undefined;
+      batchPayload.classLocation = "Online";
+      batchPayload.cityCode = "";
+    }
+
+    const newBatch = await Batch.create(batchPayload);
+
+    // Create Status
     const batchStatus = await BatchStatus.create({
       batch_obj_id: newBatch._id,
       batchId: newBatch.batchId,
       status: "UPCOMING"
     });
 
-    // --- C. Return full combined data for frontend card ---
-    const responseData = {
-      ...newBatch.toObject(),
-      status: batchStatus.status,
-      statusId: batchStatus._id,
-      batchStatus: batchStatus, // if you need entire batchStatus doc
-    };
-
-    return sendResponse(res, 201, true, "Batch created successfully.", responseData);
-
-  } catch (err) {
-    console.error("createBatch err", err);
-    return sendResponse(res, 500, false, "Server error creating batch.");
-  }
-};
-
-
-
-
-
-
-export const updateBatchStatus = async (req, res) => {
-  try {
-    const { batchId, status } = req.body;
-
-    if (!batchId || !status) {
-      return sendResponse(res, 400, false, "batchId and status are required.");
-    }
-
-    // Normalize inputs
-    const batchIdClean = String(batchId).toUpperCase().trim();
-    const statusClean = String(status).toUpperCase().trim();
-
-    // Validate Status Enum
-    const validStatuses = ["UPCOMING", "LIVE", "ENDED"];
-    if (!validStatuses.includes(statusClean)) {
-      return sendResponse(res, 400, false, "Invalid status. Use UPCOMING, LIVE, or ENDED.");
-    }
-
-    // 1. Find the Status Document
-    const statusDoc = await BatchStatus.findOne({ batchId: batchIdClean });
-
-    if (!statusDoc) {
-      return sendResponse(res, 404, false, "Batch status entry not found.");
-    }
-
-    // 2. Update the status
-    statusDoc.status = statusClean;
-    statusDoc.lastUpdated = new Date();
-    await statusDoc.save();
-
-    return sendResponse(res, 200, true, `Batch status updated to ${statusClean}.`, statusDoc);
-
-  } catch (err) {
-    console.error("updateBatchStatus err", err);
-    return sendResponse(res, 500, false, "Server error updating batch status.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const linkStudentToBatch = async (req, res) => {
-  try {
-    const { batchId, student_number } = req.body;
-
-    if (!batchId || !student_number) {
-      return sendResponse(res, 400, false, "batchId and student_number are required.");
-    }
-
-    // --- FIX: Convert to Uppercase and Trim ---
-    const batchIdClean = String(batchId).toUpperCase().trim();
-    const studentNumberClean = String(student_number).toUpperCase().trim();
-
-    // 1. Find the Batch object to get its _id
-    const batch = await Batch.findOne({ batchId: batchIdClean });
-    if (!batch) {
-      return sendResponse(res, 404, false, "Batch not found.");
-    }
-
-    // 2. Find the Student object to get its _id
-    const student = await Student.findOne({ student_number: studentNumberClean });
-    if (!student) {
-      return sendResponse(res, 404, false, "Student not found.");
-    }
-
-    // 3. Check if link already exists
-    const existingLink = await BatchStudentRelation.findOne({
-      batch_obj_id: batch._id,
-      student_obj_id: student._id
-    });
-
-    if (existingLink) {
-      return sendResponse(res, 409, false, "Student is already added to this batch.");
-    }
-
-    // 4. Create the Relation
-    const newLink = new BatchStudentRelation({
-      batch_obj_id: batch._id,
-      batchId: batchIdClean,          // Save the clean, uppercase ID
-      student_obj_id: student._id,
-      student_number: studentNumberClean // Save the clean, uppercase ID
-    });
-
-    await newLink.save();
-
-    return sendResponse(res, 200, true, "Student successfully added to batch.", newLink);
-
-  } catch (err) {
-    console.error("linkStudentToBatch err", err);
-    return sendResponse(res, 500, false, "Server error linking student to batch.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const createBatchWeek = async (req, res) => {
-  try {
-    const { 
-      batchId, 
-      week_number, 
-      title, 
-      description, 
-      class_days,
-      startTime, // <-- Input
-      endTime    // <-- Input
-    } = req.body;
-
-    // 1. Basic Validation (Added startTime and endTime)
-    if (!batchId || week_number === undefined || !title || !class_days || !startTime || !endTime) {
-      return sendResponse(res, 400, false, "batchId, week_number, title, class_days, startTime, and endTime are required.");
-    }
-
-    if (!Array.isArray(class_days) || class_days.length === 0) {
-      return sendResponse(res, 400, false, "class_days must be a non-empty array of numbers.");
-    }
-
-    const batchIdClean = String(batchId).toUpperCase().trim();
-
-    // 2. Find the Batch
-    const batch = await Batch.findOne({ batchId: batchIdClean });
-    if (!batch) {
-      return sendResponse(res, 404, false, "Batch not found.");
-    }
-
-    // 3. Check for Duplicate Week
-    const existingWeek = await BatchWeek.findOne({
-      batch_obj_id: batch._id,
-      week_number: Number(week_number)
-    });
-
-    if (existingWeek) {
-      return sendResponse(res, 409, false, `Week ${week_number} already exists for batch ${batchIdClean}.`);
-    }
-
-    // 4. Create the BatchWeek entry
-    const newWeek = new BatchWeek({
-      batch_obj_id: batch._id,
-      batchId: batchIdClean,
-      week_number: Number(week_number),
-      week_title: title,
-      week_description: description || "",
-      class_days: class_days,
-      startTime: startTime, // <-- Saved
-      endTime: endTime      // <-- Saved
-    });
-
-    await newWeek.save();
-
-    return sendResponse(res, 201, true, "Batch week created successfully.", newWeek);
-
-  } catch (err) {
-    console.error("createBatchWeek err", err);
-    if (err.code === 11000) {
-      return sendResponse(res, 409, false, "This week number already exists for this batch.");
-    }
-    return sendResponse(res, 500, false, "Server error creating batch week.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-export const listAllActiveBatches = async (req, res) => {
-  try {
-    // 1. Find all BatchStatus entries that are NOT 'ENDED'
-    const activeStatuses = await BatchStatus.find({
-      status: { $in: ["LIVE", "UPCOMING"] }
-    }).lean();
-
-    if (!activeStatuses || activeStatuses.length === 0) {
-      return sendResponse(res, 200, true, "No active batches found.", []);
-    }
-
-    // 2. Extract the batch object IDs
-    const batchIds = activeStatuses.map(s => s.batch_obj_id);
-
-    // 3. Fetch the details for these batches from the Batch table
-    const batches = await Batch.find({ _id: { $in: batchIds } }).lean();
-
-    // 4. Create a Map for quick status lookup
-    // Key: batch_obj_id (string), Value: status string
-    const statusMap = new Map();
-    activeStatuses.forEach(s => {
-      statusMap.set(s.batch_obj_id.toString(), s.status);
-    });
-
-    // 5. Merge the data into the final response format
-    const responseList = batches.map(batch => {
-      const currentStatus = statusMap.get(batch._id.toString());
-      return {
-        _id: batch._id,
-        batchId: batch.batchId,
-        cohort: batch.cohort,
-        level: batch.level,
-        startDate: batch.startDate,
-        classLocation: batch.classLocation,
-        cityCode: batch.cityCode,
-        type: batch.type,
-        status: currentStatus, // "LIVE" or "UPCOMING"
-        isLive: currentStatus === "LIVE",         // Boolean flag
-        isUpcoming: currentStatus === "UPCOMING"  // Boolean flag
-      };
-    });
-
-    return sendResponse(res, 200, true, "Active batches retrieved.", responseList);
-
-  } catch (err) {
-    console.error("listAllActiveBatches err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batches.");
-  }
-};
-
-
-
-
-
-export const getWeeksForABatch = async (req, res) => {
-  try {
-    const { batch_obj_id } = req.query;
-
-    if (!batch_obj_id) {
-      return sendResponse(res, 400, false, "batch_obj_id is required in the query.");
-    }
-
-    // Find weeks, sort by week_number ascending
-    const weeks = await BatchWeek.find({ batch_obj_id: batch_obj_id })
-      .sort({ week_number: 1 })
-      .select("week_number week_title week_description class_days")
-      .lean();
-
-    // Rename keys to match your exact request (title, description)
-    const formattedWeeks = weeks.map(week => ({
-      week_number: week.week_number,
-      title: week.week_title,
-      description: week.week_description,
-      class_days: week.class_days
-    }));
-
-    return sendResponse(res, 200, true, "Batch weeks retrieved.", formattedWeeks);
-
-  } catch (err) {
-    console.error("getWeeksForBatch err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batch weeks.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-////////////////// for a student 
-export const getMyLiveBatches = async (req, res) => {
-  try {
-    // 1. Get studentId from token
-    const studentId = req.authPayload.id;
-
-    // 2. Find all batches this student is linked to
-    const relations = await BatchStudentRelation.find({ 
-      student_obj_id: studentId 
-    }).select("batch_obj_id");
-
-    if (!relations || relations.length === 0) {
-      return sendResponse(res, 200, true, "You are not enrolled in any batches.", []);
-    }
-
-    // Extract the ObjectIds
-    const batchObjIds = relations.map(r => r.batch_obj_id);
-
-    // 3. Find which of these batches are currently "LIVE"
-    const liveBatches = await BatchStatus.find({
-      batch_obj_id: { $in: batchObjIds },
-      status: "LIVE"
-    }).select("batchId batch_obj_id"); // Select specific fields
-
-    // 4. Format the response
-    const responseList = liveBatches.map(b => ({
-      batchId: b.batchId,       // String ID (e.g., SPA004)
-      batch_obj_id: b.batch_obj_id // Database ObjectId
-    }));
-
-    return sendResponse(res, 200, true, "Live batches retrieved.", responseList);
-
-  } catch (err) {
-    console.error("getMyLiveBatches err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batches.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-///// only for student 
-
-export const getMyEnrolledBatches = async (req, res) => {
-  try {
-    // 1. Get studentId from token
-    const studentId = req.authPayload.id;
-
-    // 2. Find all relation entries (Batches the student is linked to)
-    const relations = await BatchStudentRelation.find({ 
-      student_obj_id: studentId 
-    }).lean();
-
-    if (!relations || relations.length === 0) {
-      return sendResponse(res, 200, true, "You are not enrolled in any batches.", []);
-    }
-
-    // Extract Batch Object IDs
-    const batchObjIds = relations.map(r => r.batch_obj_id);
-
-    // 3. Fetch Batch Details (Title, Start Date, etc.)
-    const batches = await Batch.find({ 
-      _id: { $in: batchObjIds } 
-    }).lean();
-
-    // 4. Fetch Batch Statuses
-    const statuses = await BatchStatus.find({
-      batch_obj_id: { $in: batchObjIds }
-    }).lean();
-
-    // 5. Create a Map for O(1) status lookup
-    const statusMap = {};
-    statuses.forEach(s => {
-      statusMap[s.batch_obj_id.toString()] = s.status;
-    });
-
-    // 6. Merge Data and Format Response
-    const responseList = batches.map(batch => {
-      const currentStatus = statusMap[batch._id.toString()] || "UNKNOWN";
-      
-      return {
-        _id: batch._id,
-        batchId: batch.batchId,
-        startDate: batch.startDate,
-        classLocation: batch.classLocation,
-        cohort: batch.cohort,
-        level: batch.level,
-        description: batch.description,
-        
-        // Status Fields
-        status: currentStatus,
-        isLive: currentStatus === "LIVE",
-        isUpcoming: currentStatus === "UPCOMING",
-        isEnded: currentStatus === "ENDED"
-      };
-    })
-    // 7. FILTER: Only keep LIVE or UPCOMING (Remove ENDED)
-    .filter(batch => !batch.isEnded); 
-
-    return sendResponse(res, 200, true, "Enrolled batches retrieved.", responseList);
-
-  } catch (err) {
-    console.error("getMyEnrolledBatches err", err);
-    return sendResponse(res, 500, false, "Server error retrieving enrolled batches.");
-  }
-};
-
-
-
-
-
-
-
-
-
-
-////// srudent checking all batches + ishe enrolled or not also both 
-
-export const getAllBatchesForStudent = async (req, res) => {
-  try {
-    // 1. Get studentId from token
-    const studentId = req.authPayload.id;
-
-    // 2. Find ALL active statuses (LIVE or UPCOMING)
-    const activeStatuses = await BatchStatus.find({
-      status: { $in: ["LIVE", "UPCOMING"] }
-    }).lean();
-
-    if (!activeStatuses || activeStatuses.length === 0) {
-      return sendResponse(res, 200, true, "No active batches found.", []);
-    }
-
-    // Extract batch Object IDs
-    const activeBatchIds = activeStatuses.map(s => s.batch_obj_id);
-
-    // 3. Fetch Batch Details for these active batches
-    const batches = await Batch.find({ 
-      _id: { $in: activeBatchIds } 
-    }).lean();
-
-    // 4. Find which of these the STUDENT is enrolled in
-    const myEnrollments = await BatchStudentRelation.find({
-      student_obj_id: studentId,
-      batch_obj_id: { $in: activeBatchIds }
-    }).select("batch_obj_id").lean();
-
-    // 5. Create Lookups (Maps/Sets) for O(1) access
-    
-    // Status Map: BatchID -> Status
-    const statusMap = {};
-    activeStatuses.forEach(s => {
-      statusMap[s.batch_obj_id.toString()] = s.status;
-    });
-
-    // Enrollment Set: Set of BatchIDs the student has joined
-    const enrolledSet = new Set(
-      myEnrollments.map(e => e.batch_obj_id.toString())
-    );
-
-    // 6. Merge and Format Response
-    const responseList = batches.map(batch => {
-      const bIdString = batch._id.toString();
-      const currentStatus = statusMap[bIdString] || "UNKNOWN";
-      
-      return {
-        _id: batch._id,
-        batchId: batch.batchId,
-        startDate: batch.startDate,
-        classLocation: batch.classLocation,
-        cohort: batch.cohort,
-        level: batch.level,
-        description: batch.description,
-        
-        // Status Fields
-        status: currentStatus,
-        isLive: currentStatus === "LIVE",
-        isUpcoming: currentStatus === "UPCOMING",
-        
-        // The specific flag you asked for
-        amIEnrolled: enrolledSet.has(bIdString)
-      };
-    });
-
-    return sendResponse(res, 200, true, "All active batches retrieved.", responseList);
-
-  } catch (err) {
-    console.error("getAllBatchesForStudent err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batches.");
-  }
-};
-
-
-
-
-
-
-
-
-
-/// studnt checking week data for a batch in which he is enrolled 
-
-
-/**
- * ---------------------------------------------------
- * NEW FUNCTION: Get Weeks for a Batch (Student)
- * GET /api/student/weeksinfoofbatch?batch_obj_id=...
- * Verifies enrollment first.
- * ---------------------------------------------------
- */
-export const getWeeksForBatchStudent = async (req, res) => {
-  try {
-    // 1. Get inputs
-    const studentId = req.authPayload.id;
-    const { batch_obj_id } = req.query;
-
-    if (!batch_obj_id) {
-      return sendResponse(res, 400, false, "batch_obj_id is required in the query.");
-    }
-
-    // 2. Verify Enrollment: Is this student linked to this batch?
-    const isEnrolled = await BatchStudentRelation.exists({
-      student_obj_id: studentId,
-      batch_obj_id: batch_obj_id
-    });
-
-    if (!isEnrolled) {
-      return sendResponse(res, 403, false, "Access denied. You are not enrolled in this batch.");
-    }
-
-    // 3. Fetch Weeks
-    const weeks = await BatchWeek.find({ batch_obj_id: batch_obj_id })
-      .sort({ week_number: 1 }) // Ascending order
-      .select("week_number week_title week_description class_days")
-      .lean();
-
-    // 4. Format Response
-    const formattedWeeks = weeks.map(week => ({
-      week_number: week.week_number,
-      title: week.week_title,
-      description: week.week_description,
-      class_days: week.class_days
-    }));
-
-    return sendResponse(res, 200, true, "Batch weeks retrieved.", formattedWeeks);
-
-  } catch (err) {
-    console.error("getWeeksForBatchStudent err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batch weeks.");
-  }
-};
-
-
-
-
-
-
-
-////////////// student asking for today live batch info class time is class or not like that 
-
-
-export const getTodaysLiveBatchInfo = async (req, res) => {
-  try {
-    const studentId = req.authPayload.id;
-    const { batch_obj_id } = req.body;
-
-    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
-
-    // 1. Verify Enrollment
-    const isEnrolled = await BatchStudentRelation.exists({
-      student_obj_id: studentId,
-      batch_obj_id: batch_obj_id
-    });
-    if (!isEnrolled) return sendResponse(res, 403, false, "Access denied.");
-
-    // 2. Fetch Batch
-    const batch = await Batch.findById(batch_obj_id);
-    if (!batch) return sendResponse(res, 404, false, "Batch not found.");
-    
-    // 3. Normalize Dates (Midnight)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const start = new Date(batch.startDate);
-    start.setHours(0, 0, 0, 0);
-
-    // 4. Calculate Diff
-    const diffTime = today.getTime() - start.getTime();
-    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-      return sendResponse(res, 200, true, "Batch upcoming.", { 
-        hasClassToday: false,
-        classLocation: batch.classLocation // Also return location for upcoming batches
-      });
-    }
-
-    // 5. Calculate Shift (Mon=1...Sun=7)
-    let startDayIndex = start.getDay(); 
-    if (startDayIndex === 0) startDayIndex = 7; 
-    const shift = startDayIndex - 1;
-
-    // 6. Calculate Current Week & Day
-    const currentWeekNumber = 1 + Math.floor((diffDays + shift) / 7);
-    let currentDayNumber = today.getDay();
-    if (currentDayNumber === 0) currentDayNumber = 7;
-
-    // 7. DB Lookup for Today
-    const weekData = await BatchWeek.findOne({
-      batch_obj_id: batch_obj_id,
-      week_number: currentWeekNumber
-    });
-
-    // 8. Check Class Status Today
-    let hasClassToday = false;
-    let classInfo = null;
-
-    if (weekData && weekData.class_days.includes(currentDayNumber)) {
-      hasClassToday = true;
-      classInfo = {
-        weekTitle: weekData.week_title,
-        weekDescription: weekData.week_description,
-        startTime: weekData.startTime,
-        endTime: weekData.endTime
-      };
-    }
-
-    // --- NEW LOGIC: FIND NEXT CLASS DATE ---
-    let nextClassDate = null;
-    let daysToCheck = 1; // Start checking from tomorrow
-    let maxDaysLookahead = 30; // Safety break
-    
-    const weekDataCache = {}; 
-    if(weekData) weekDataCache[currentWeekNumber] = weekData;
-
-    while (daysToCheck <= maxDaysLookahead) {
-      const futureTotalDays = diffDays + daysToCheck;
-      const futureWeekNum = 1 + Math.floor((futureTotalDays + shift) / 7);
-      
-      const futureDateObj = new Date(today);
-      futureDateObj.setDate(today.getDate() + daysToCheck);
-      let futureDayNum = futureDateObj.getDay();
-      if (futureDayNum === 0) futureDayNum = 7;
-
-      let futureWeekData = weekDataCache[futureWeekNum];
-      
-      if (futureWeekData === undefined) {
-        futureWeekData = await BatchWeek.findOne({
-          batch_obj_id: batch_obj_id,
-          week_number: futureWeekNum
-        });
-        weekDataCache[futureWeekNum] = futureWeekData;
-      }
-
-      if (futureWeekData && futureWeekData.class_days.includes(futureDayNum)) {
-        nextClassDate = futureDateObj.toDateString(); 
-        break; 
-      }
-
-      daysToCheck++;
-    }
-    // ----------------------------------------
-
-    // 9. Response
-    return sendResponse(res, 200, true, "Info retrieved.", {
-      hasClassToday,
-      calculatedWeek: currentWeekNumber,
-      calculatedDay: currentDayNumber,
-      batchId: batch.batchId,
-      classLocation: batch.classLocation, // <--- ADDED HERE
-      nextClassDate: nextClassDate, 
-      ...(hasClassToday ? classInfo : { message: "No class today." })
+    return sendResponse(res, 201, true, "Batch created.", { 
+      ...newBatch.toObject(), 
+      status: batchStatus.status 
     });
 
   } catch (err) {
-    console.error("getTodaysLiveBatchInfo err", err);
+    console.error("createBatchForAdmin err", err);
     return sendResponse(res, 500, false, "Server error.");
   }
 };
 
 
-
-
-
-
-
-
-/// admin listing list of studnt is a batch 
-export const getStudentsInBatch = async (req, res) => {
+/**
+ * Controller: linkStudentToBatchForAdmin
+ * Input: { batchId (string), student_number (string) }
+ * Output: Created Relation object
+ */
+export const linkStudentToBatchForAdmin = async (req, res) => {
   try {
-    const { batch_obj_id } = req.query;
+    const { batchId, student_number } = req.body;
+    if (!batchId || !student_number) return sendResponse(res, 400, false, "Fields required.");
 
+    const batchIdClean = String(batchId).toUpperCase().trim();
+    const studentNumberClean = String(student_number).toUpperCase().trim();
 
-    if (!batch_obj_id) {
-      return sendResponse(res, 400, false, "batch_obj_id is required in the query.");
+    const batch = await Batch.findOne({ batchId: batchIdClean });
+    if (!batch) return sendResponse(res, 404, false, "Batch not found.");
+
+    const student = await Student.findOne({ student_number: studentNumberClean });
+    if (!student) return sendResponse(res, 404, false, "Student not found.");
+
+    const exists = await BatchStudentRelation.exists({ batch_obj_id: batch._id, student_obj_id: student._id });
+    if (exists) return sendResponse(res, 409, false, "Student already in batch.");
+
+    const newLink = await BatchStudentRelation.create({
+      batch_obj_id: batch._id,
+      batchId: batchIdClean,
+      student_obj_id: student._id,
+      student_number: studentNumberClean
+    });
+
+    return sendResponse(res, 200, true, "Student linked.", newLink);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: updateBatchStatusForAdmin
+ * Input: { batchId, status (UPCOMING/LIVE/ENDED) }
+ * Output: Updated Status document
+ */
+export const updateBatchStatusForAdmin = async (req, res) => {
+  try {
+    const { batchId, status } = req.body;
+    if (!batchId || !status) return sendResponse(res, 400, false, "Fields required.");
+
+    const statusClean = String(status).toUpperCase().trim();
+    if (!["UPCOMING", "LIVE", "ENDED"].includes(statusClean)) return sendResponse(res, 400, false, "Invalid status.");
+
+    const statusDoc = await BatchStatus.findOne({ batchId: String(batchId).toUpperCase().trim() });
+    if (!statusDoc) return sendResponse(res, 404, false, "Batch status not found.");
+
+    statusDoc.status = statusClean;
+    statusDoc.lastUpdated = new Date();
+    await statusDoc.save();
+
+    return sendResponse(res, 200, true, "Status updated.", statusDoc);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: createSessionInsideABatchForAdmin
+ * Input: { batchId, session_number, title, date, startTime, endTime, meetingLinkOrLocation }
+ * Output: Created Session object
+ */
+export const createSessionInsideABatchForAdmin = async (req, res) => {
+  try {
+    const { 
+      batchId, 
+      session_number, 
+      title, 
+      description, 
+      date, 
+      startTime, 
+      endTime, 
+      meetingLinkOrLocation 
+    } = req.body;
+    
+    // 1. Removed meetingLinkOrLocation from required checks
+    if (!batchId || !session_number || !title || !date || !startTime || !endTime) {
+      return sendResponse(res, 400, false, "Missing required session fields (batchId, session_number, title, date, times).");
     }
 
-    // 1. Find all relation entries for this batch
-    const relations = await BatchStudentRelation.find({ 
-      batch_obj_id: batch_obj_id 
-    }).select("student_obj_id");
+    const batch = await Batch.findOne({ batchId: String(batchId).toUpperCase().trim() });
+    if (!batch) return sendResponse(res, 404, false, "Batch not found.");
 
-    if (!relations || relations.length === 0) {
-      return sendResponse(res, 200, true, "No students found in this batch.", []);
+    const exists = await BatchSession.exists({ batch_obj_id: batch._id, session_number: Number(session_number) });
+    if (exists) return sendResponse(res, 409, false, "Session number already exists for this batch.");
+
+    // 2. Create session (meetingLinkOrLocation is optional now)
+    const newSession = await BatchSession.create({
+      batch_obj_id: batch._id,
+      batchId: batch.batchId,
+      session_number: Number(session_number),
+      title,
+      description: description || "",
+      date: new Date(date),
+      startTime,
+      endTime,
+      sessionType: batch.batchType , // Fallback if batchType missing
+      meetingLinkOrLocation: meetingLinkOrLocation || null // Save null if empty
+    });
+
+    return sendResponse(res, 201, true, "Session created successfully.", newSession);
+  } catch (err) {
+    console.error("createSession error:", err);
+    return sendResponse(res, 500, false, "Server error creating session.");
+  }
+};
+
+
+
+
+/**
+ * Controller: updateSessionDetailsForAdmin
+ * Input: { session_obj_id, ...updates }
+ * Output: Updated Session object
+ */
+export const updateSessionDetailsForAdmin = async (req, res) => {
+  try {
+    const { 
+      session_obj_id, // <--- Direct ID lookup
+      title, 
+      description, 
+      date, 
+      startTime, 
+      endTime, 
+      meetingLinkOrLocation 
+    } = req.body;
+
+    // 1. Validate ID is present
+    if (!session_obj_id) {
+      return sendResponse(res, 400, false, "session_obj_id is required.");
     }
 
-    // 2. Extract the Student Object IDs
-    const studentIds = relations.map(rel => rel.student_obj_id);
+    // 2. Find the Session directly using the ID
+    const session = await BatchSession.findById(session_obj_id);
 
-    // 3. Fetch details from Student table (name, email, mobile)
-    const students = await Student.find({ 
-      _id: { $in: studentIds } 
-    }).select("name email mobile _id student_number").lean();
+    if (!session) {
+      return sendResponse(res, 404, false, "Session not found.");
+    }
 
-    return sendResponse(res, 200, true, "Students in batch retrieved.", students);
+    // 3. Update fields if they are provided in the body
+    if (title !== undefined) session.title = title;
+    if (description !== undefined) session.description = description;
+    if (date !== undefined) session.date = new Date(date);
+    if (startTime !== undefined) session.startTime = startTime;
+    if (endTime !== undefined) session.endTime = endTime;
+    
+    // Allow updating link to empty/null if passed explicitly, or new value
+    if (meetingLinkOrLocation !== undefined) {
+      session.meetingLinkOrLocation = meetingLinkOrLocation;
+    }
+
+    await session.save();
+
+    return sendResponse(res, 200, true, "Session updated successfully.", session);
 
   } catch (err) {
-    console.error("getStudentsInBatch err", err);
-    return sendResponse(res, 500, false, "Server error retrieving students.");
+    console.error("updateSession error:", err);
+    return sendResponse(res, 500, false, "Server error updating session.");
+  }
+};
+
+
+
+
+/**
+ * Controller: listAllActiveBatchesForAdmin
+ * Input: None (GET request)
+ * Output: Array of batch objects (LIVE or UPCOMING only)
+ */
+export const listAllActiveBatchesForAdmin = async (req, res) => {
+  try {
+    const activeStatuses = await BatchStatus.find({ status: { $in: ["LIVE", "UPCOMING"] } }).lean();
+    if (!activeStatuses.length) return sendResponse(res, 200, true, "No active batches.", []);
+
+    const batchIds = activeStatuses.map(s => s.batch_obj_id);
+    const batches = await Batch.find({ _id: { $in: batchIds } }).lean();
+
+    const statusMap = new Map();
+    activeStatuses.forEach(s => statusMap.set(s.batch_obj_id.toString(), s.status));
+
+    const result = batches.map(b => ({
+      ...b,
+      status: statusMap.get(b._id.toString()),
+      isLive: statusMap.get(b._id.toString()) === "LIVE"
+    }));
+
+    return sendResponse(res, 200, true, "Active batches retrieved.", result);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: getSessionForABatchForAdmin
+ * Input: Query param ?batch_obj_id=...
+ * Output: Array of session objects sorted by number
+ */
+export const getSessionForABatchForAdmin = async (req, res) => {
+  try {
+    const { batch_obj_id } = req.query;
+    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
+
+    const sessions = await BatchSession.find({ batch_obj_id }).sort({ session_number: 1 }).lean();
+    return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: getStudentInSBatchForAdmin
+ * Input: Query param ?batch_obj_id=...
+ * Output: Array of student objects (name, email, mobile, student_number)
+ */
+export const getStudentInSBatchForAdmin = async (req, res) => {
+  try {
+
+    // console.log(1111)
+    const { batch_obj_id } = req.query;
+    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
+
+    const relations = await BatchStudentRelation.find({ batch_obj_id }).select("student_obj_id");
+    const studentIds = relations.map(r => r.student_obj_id);
+
+    const students = await Student.find({ _id: { $in: studentIds } }).select("name email mobile student_number").lean();
+    return sendResponse(res, 200, true, "Students retrieved.", students);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+
+// ==========================================
+//              STUDENT CONTROLLERS
+// ==========================================
+
+/**
+ * Controller: myLiveBatchesForStudent
+ * Input: Auth Token
+ * Output: Array of { batchId, batch_obj_id } for enrolled LIVE batches
+ */
+export const myLiveBatchesForStudent = async (req, res) => {
+  try {
+    const studentId = req.authPayload.id;
+
+    // 1. Get enrolled batches
+    const relations = await BatchStudentRelation.find({ student_obj_id: studentId }).select("batch_obj_id");
+    if (!relations.length) return sendResponse(res, 200, true, "No batches.", []);
+    
+    const batchObjIds = relations.map(r => r.batch_obj_id);
+
+    // 2. Filter LIVE ones
+    const liveBatches = await BatchStatus.find({ 
+      batch_obj_id: { $in: batchObjIds }, 
+      status: "LIVE" 
+    }).select("batchId batch_obj_id");
+
+    return sendResponse(res, 200, true, "Live batches retrieved.", liveBatches);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: getSessionForABatchForStudent
+ * Input: Query param ?batch_obj_id=...
+ * Output: Array of sessions (Verifies enrollment first)
+ */
+export const getSessionForABatchForStudent = async (req, res) => {
+  try {
+    const studentId = req.authPayload.id;
+    const { batch_obj_id } = req.query;
+    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
+
+    const isEnrolled = await BatchStudentRelation.exists({ student_obj_id: studentId, batch_obj_id });
+    if (!isEnrolled) return sendResponse(res, 403, false, "Not enrolled.");
+
+    const sessions = await BatchSession.find({ batch_obj_id }).sort({ session_number: 1 }).lean();
+    return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
+  } catch (err) {
+    return sendResponse(res, 500, false, "Server error.");
+  }
+};
+
+/**
+ * Controller: getTodayLiveBatchInfoForStudent
+ * Input: Body { batch_obj_id }
+ * Output: { hasClassToday: bool, sessionDetails (if true), nextClassDate, batchInfo }
+ */
+export const getTodayLiveBatchInfoForStudent = async (req, res) => {
+  try {
+    const studentId = req.authPayload.id;
+    const { batch_obj_id } = req.body;
+    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
+
+    const isEnrolled = await BatchStudentRelation.exists({ student_obj_id: studentId, batch_obj_id });
+    if (!isEnrolled) return sendResponse(res, 403, false, "Not enrolled.");
+
+    const batch = await Batch.findById(batch_obj_id);
+    if (!batch) return sendResponse(res, 404, false, "Batch not found.");
+
+    // Define Today's Range
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+
+    // 1. Check Today
+    const todaysSession = await BatchSession.findOne({
+      batch_obj_id: batch._id,
+      date: { $gte: startOfDay, $lte: endOfDay }
+    });
+
+    // 2. Find Next Class
+    const nextSession = await BatchSession.findOne({
+      batch_obj_id: batch._id,
+      date: { $gt: endOfDay }
+    }).sort({ date: 1 });
+
+    const response = {
+      batchId: batch.batchId,
+      batchType: batch.batchType,
+      defaultLocation: batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
+      
+      hasClassToday: !!todaysSession,
+      sessionDetails: todaysSession || null,
+      
+      nextClassDate: nextSession ? nextSession.date.toDateString() : "Not scheduled"
+    };
+
+    return sendResponse(res, 200, true, "Info retrieved.", response);
+  } catch (err) {
+    console.error("getTodayLiveBatchInfoForStudent err", err);
+    return sendResponse(res, 500, false, "Server error.");
   }
 };

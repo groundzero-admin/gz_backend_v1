@@ -1,117 +1,31 @@
-
-import Teacher from "../models/Teacher.js"; // <-- 1. IMPORT THE TEACHER MODEL
+import Teacher from "../models/Teacher.js";
 import { sendResponse } from "../middleware/auth.js";
-
 import BatchStatus from "../models/BatchStatus.js";
 import Batch from "../models/Batch.js";
-
-import BatchWeek from "../models/BatchWeek.js";
-
-
-import BatchStudentRelation from "../models/BatchStudentRelation.js"; // <-- Import Relation
+import BatchSession from "../models/BatchSession.js"; // Correct Model Name
+import BatchStudentRelation from "../models/BatchStudentRelation.js";
 import Student from "../models/Student.js";
 
-
-
-
-
-
-
-/////////////////////////////////////////////////////////////////   for admin 
+/**
+ * ---------------------------------------------------
+ * 1. ADMIN: List All Teachers
+ * ---------------------------------------------------
+ */
 export const listAllTeachers = async (req, res) => {
   try {
-    // Find all documents in the Teacher collection
-    // .select() specifies which fields to return
     const teachers = await Teacher.find({}).select("name email mobile");
-
     return sendResponse(res, 200, true, "Teachers retrieved successfully.", teachers);
-
   } catch (err) {
     console.error("listAllTeachers err", err);
     return sendResponse(res, 500, false, "Server error retrieving teachers.");
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**
  * ---------------------------------------------------
- * NEW FUNCTION: Get Live Batch Info (Teacher)
+ * 2. TEACHER: Get Live Batch Info
  * GET /api/teacher/getlivebatchinfo?details=minor|major
- * Fetches ALL live batches (Teachers have global access)
  * ---------------------------------------------------
- */
-
-
-/**
- minor query resp 
- {
-  "success": true,
-  "message": "Live batches (minor) retrieved.",
-  "data": [
-    {
-      "_id": "651a2b3c4d5e6f7g8h9i0j1k", 
-      "batchId": "SPA001"
-    },
-    {
-      "_id": "651a2b3c4d5e6f7g8h9i0j2l", 
-      "batchId": "BZB005"
-    }
-  ]
-}
-
-
-major q resp 
-{
-  "success": true,
-  "message": "Live batches (major) retrieved.",
-  "data": [
-    {
-      "_id": "651a2b3c4d5e6f7g8h9i0j1k",
-      "batchId": "SPA001",
-      "cohort": "spark",
-      "level": "alpha",
-      "classLocation": "Room 304, Main Building",
-      "cityCode": "110022",
-      "startDate": "2023-11-20T00:00:00.000Z",
-      "type": "S",
-      "description": "Morning batch for beginners.",
-      "createdAt": "2023-11-10T10:00:00.000Z",
-      "status": "LIVE"
-    },
-    {
-      "_id": "651a2b3c4d5e6f7g8h9i0j2l",
-      "batchId": "BZB005",
-      "cohort": "blaze",
-      "level": "beta",
-      "classLocation": "Lab 2",
-      "cityCode": "440010",
-      "startDate": "2023-12-04T00:00:00.000Z",
-      "type": "C",
-      "description": "Advanced physics group.",
-      "createdAt": "2023-11-15T14:30:00.000Z",
-      "status": "LIVE"
-    }
-  ]
-}
-
-
  */
 export const getLiveBatchInfoTeacher = async (req, res) => {
   try {
@@ -121,7 +35,6 @@ export const getLiveBatchInfoTeacher = async (req, res) => {
       return sendResponse(res, 400, false, "Query param 'details' must be 'minor' or 'major'.");
     }
 
-    // 1. Find all batches marked as "LIVE" in the status table
     const liveStatuses = await BatchStatus.find({ status: "LIVE" }).lean();
 
     if (!liveStatuses || liveStatuses.length === 0) {
@@ -129,32 +42,25 @@ export const getLiveBatchInfoTeacher = async (req, res) => {
     }
 
     // --- CASE 1: MINOR DETAILS ---
-    // Just return Object ID and String ID.
-    // We can get this directly from BatchStatus without querying the Batch table.
     if (details === 'minor') {
       const minorData = liveStatuses.map(status => ({
-        _id: status.batch_obj_id, // The Batch Object ID
-        batchId: status.batchId    // The String ID (e.g., SPA001)
+        _id: status.batch_obj_id,
+        batchId: status.batchId
       }));
-      
       return sendResponse(res, 200, true, "Live batches (minor) retrieved.", minorData);
     }
 
     // --- CASE 2: MAJOR DETAILS ---
-    // Return full batch info (Location, Cohort, etc.)
     if (details === 'major') {
       const batchObjIds = liveStatuses.map(s => s.batch_obj_id);
-
-      // Query the main Batch table
+      
+      // Fetch specific fields from Batch model
       const batches = await Batch.find({ _id: { $in: batchObjIds } }).lean();
-
-      // (Optional) We can attach the status "LIVE" explicitly if needed, 
-      // but the frontend knows they are live because of the API call.
+      
       const majorData = batches.map(b => ({
         ...b,
-        status: "LIVE" // Explicitly stating it's live
+        status: "LIVE" // Explicitly adding status for frontend convenience
       }));
-
       return sendResponse(res, 200, true, "Live batches (major) retrieved.", majorData);
     }
 
@@ -164,56 +70,11 @@ export const getLiveBatchInfoTeacher = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /**
  * ---------------------------------------------------
- * NEW FUNCTION: Get Today's Schedule for ALL Live Batches (Teacher)
+ * 3. TEACHER: Get Today's Schedule
  * GET /api/teacher/todayslivebatchinfo
  * ---------------------------------------------------
- 
-
-
-   {
-  "success": true,
-  "message": "Today's live batch info retrieved.",
-  "data": [
-    {
-      "batchId": "SPA001",
-      "classLocation": "Room 304",
-      "weekNumber": 5,
-      "hasClassToday": true,
-      "timing": "6:30 am - 8:30 am",
-      "nextClassDate": "Wed Nov 22 2025"
-    },
-    {
-      "batchId": "IGB002",
-      "classLocation": "Lab 1",
-      "weekNumber": 2,
-      "hasClassToday": false,
-      "timing": "No class today",
-      "nextClassDate": "Tue Nov 21 2025"
-    }
-  ]
-}
-
-
  */
 export const getTodaysLiveBatchesForTeacher = async (req, res) => {
   try {
@@ -226,106 +87,69 @@ export const getTodaysLiveBatchesForTeacher = async (req, res) => {
 
     const batchObjIds = liveStatuses.map(s => s.batch_obj_id);
 
-    // 2. Fetch full batch details
+    // 2. Fetch Batch details (we need classLocation and batchType for fallbacks)
     const batches = await Batch.find({ _id: { $in: batchObjIds } }).lean();
 
-    // 3. Process each batch (Calculate dates, weeks, and next class)
-    // We use Promise.all to run these calculations in parallel for speed
+    // 3. Process each batch
     const processedBatches = await Promise.all(batches.map(async (batch) => {
       
-      // --- A. Date Math Setup ---
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const start = new Date(batch.startDate);
-      start.setHours(0, 0, 0, 0);
+      // Define Today's Time Range
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
 
-      const diffTime = today.getTime() - start.getTime();
-      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-
-      // --- B. Calculate Shift & Current Week ---
-      let startDayIndex = start.getDay(); 
-      if (startDayIndex === 0) startDayIndex = 7; 
-      const shift = startDayIndex - 1;
-
-      // Handle future batches or calculated week
-      let currentWeekNumber = 1;
-      if (diffDays >= 0) {
-        currentWeekNumber = 1 + Math.floor((diffDays + shift) / 7);
-      }
-
-      let currentDayNumber = today.getDay();
-      if (currentDayNumber === 0) currentDayNumber = 7;
-
-      // --- C. Fetch Week Data for Current Week ---
-      // We need this to check if there is a class *today*
-      const weekData = await BatchWeek.findOne({
+      // --- A. Check for Class TODAY ---
+      const todaysSession = await BatchSession.findOne({
         batch_obj_id: batch._id,
-        week_number: currentWeekNumber
-      });
+        date: { $gte: todayStart, $lte: todayEnd }
+      }).lean();
 
-      // --- D. Check Today's Class ---
       let hasClassToday = false;
-      let timing = null;
+      let timing = "No class today";
       
-      // Only true if batch has started AND week exists AND today is in class_days
-      if (diffDays >= 0 && weekData && weekData.class_days.includes(currentDayNumber)) {
+      // Default to Batch settings
+      let currentMode = batch.batchType; // "ONLINE" or "OFFLINE"
+      let connectionInfo = null;
+
+      if (todaysSession) {
         hasClassToday = true;
-        timing = `${weekData.startTime} - ${weekData.endTime}`;
+        timing = `${todaysSession.startTime} - ${todaysSession.endTime}`;
+        
+        // Use Session specific type if available, else fallback to batch
+        currentMode = todaysSession.sessionType || batch.batchType;
+
+        // --- Logic: Link vs Location ---
+        if (currentMode === 'ONLINE') {
+          // If Online, get the link from the session
+          connectionInfo = todaysSession.meetingLinkOrLocation || "Link not available";
+        } else {
+          // If Offline, try session specific location, otherwise Batch default location
+          connectionInfo = todaysSession.meetingLinkOrLocation || batch.classLocation || "Location not assigned";
+        }
       }
 
-      // --- E. Calculate Next Class Date ---
-      let nextClassDate = null;
-      let daysToCheck = 1; 
-      let maxDaysLookahead = 30;
-      
-      // Cache current week data so we don't refetch it in the loop
-      const weekDataCache = {}; 
-      if (weekData) weekDataCache[currentWeekNumber] = weekData;
+      // --- B. Find Next Class Date ---
+      const nextSession = await BatchSession.findOne({
+        batch_obj_id: batch._id,
+        date: { $gt: todayEnd }
+      })
+      .sort({ date: 1 })
+      .select("date")
+      .lean();
 
-      while (daysToCheck <= maxDaysLookahead) {
-        const futureTotalDays = diffDays + daysToCheck;
-        
-        // Skip logic if batch hasn't started yet (look for first day of week 1)
-        if (futureTotalDays < 0) {
-           daysToCheck++;
-           continue; 
-        }
+      const nextClassDate = nextSession 
+        ? new Date(nextSession.date).toDateString() 
+        : "Not scheduled";
 
-        const futureWeekNum = 1 + Math.floor((futureTotalDays + shift) / 7);
-        
-        const futureDateObj = new Date(today);
-        futureDateObj.setDate(today.getDate() + daysToCheck);
-        let futureDayNum = futureDateObj.getDay();
-        if (futureDayNum === 0) futureDayNum = 7;
-
-        let futureWeekData = weekDataCache[futureWeekNum];
-        if (futureWeekData === undefined) {
-          futureWeekData = await BatchWeek.findOne({
-            batch_obj_id: batch._id,
-            week_number: futureWeekNum
-          });
-          weekDataCache[futureWeekNum] = futureWeekData;
-        }
-
-        if (futureWeekData && futureWeekData.class_days.includes(futureDayNum)) {
-          nextClassDate = futureDateObj.toDateString();
-          break;
-        }
-        daysToCheck++;
-      }
-
-      // --- F. Return Constructed Object ---
       return {
         batchId: batch.batchId,
-        classLocation: batch.classLocation,
-        weekNumber: currentWeekNumber,
-        
-        // Today's specific info
         hasClassToday: hasClassToday,
-        timing: hasClassToday ? timing : "No class today",
-        
-        // Future info
-        nextClassDate: nextClassDate || "Not scheduled"
+        timing: timing,
+        nextClassDate: nextClassDate,
+        mode: currentMode,
+        connectionInfo: connectionInfo
       };
     }));
 
@@ -337,62 +161,12 @@ export const getTodaysLiveBatchesForTeacher = async (req, res) => {
   }
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/** 
- {
-  "success": true,
-  "message": "Batch details retrieved successfully.",
-  "data": {
-    "weeks": [
-      {
-        "_id": "week_obj_id_1",
-        "week_number": 1,
-        "week_title": "Intro to Physics",
-        "week_description": "Basics of motion",
-        "class_days": [1, 3, 5],
-        "startTime": "6:30 am",
-        "endTime": "8:30 am"
-      }
-    ],
-    "students": [
-      {
-        "student_obj_id": "student_obj_id_A",
-        "name": "Adarsh Dwivedi",
-        "email": "student@example.com",
-        "student_number": "GZST004"
-      },
-      {
-        "student_obj_id": "student_obj_id_B",
-        "name": "Jane Doe",
-        "email": "jane@example.com",
-        "student_number": "GZST005"
-      }
-    ]
-  }
-}
-
- */
-
-
-export const getBatchAndWeekDetailsForTeacher = async (req, res) => {
+/**
+ * ---------------------------------------------------
+ * 4. TEACHER: Get Batch & Session Details
+ * GET /api/teacher/batch-sessions?batch_obj_id=...
+ * ---------------------------------------------------
+ */export const getBatchAndSessionDetailsForTeacher = async (req, res) => {
   try {
     const { batch_obj_id } = req.query;
 
@@ -400,55 +174,66 @@ export const getBatchAndWeekDetailsForTeacher = async (req, res) => {
       return sendResponse(res, 400, false, "batch_obj_id is required in the query.");
     }
 
-    // --- PART A: Fetch Weeks Info ---
-    const weeksPromise = BatchWeek.find({ batch_obj_id: batch_obj_id })
-      .sort({ week_number: 1 })
-      .select("week_number week_title week_description class_days startTime endTime")
+    // --- 1. Fetch Batch Metadata ---
+    // Added 'startDate', 'batchType', 'classLocation', 'meetingLink' etc.
+    const batch = await Batch.findById(batch_obj_id)
+      .select("batchId batchType startDate classLocation description cohort level cityCode")
       .lean();
 
-    // --- PART B: Fetch Students Info (Relations) ---
-    const relationsPromise = BatchStudentRelation.find({ 
-      batch_obj_id: batch_obj_id 
-    }).select("student_obj_id").lean();
-
-    // --- PART C: Fetch Batch Basic Info (NEW) ---
-    // We need this to get the readable 'batchId' string (e.g., SPA001)
-    const batchPromise = Batch.findById(batch_obj_id).select("batchId").lean();
-
-    // Execute all 3 queries in parallel
-    const [weeks, relations, batchDoc] = await Promise.all([
-      weeksPromise, 
-      relationsPromise, 
-      batchPromise
-    ]);
-
-    if (!batchDoc) {
+    if (!batch) {
       return sendResponse(res, 404, false, "Batch not found.");
     }
 
-    // Process Students
-    const studentIds = relations.map(r => r.student_obj_id);
-
-    const students = await Student.find({ _id: { $in: studentIds } })
-      .select("name email student_number _id")
+    // --- 2. Fetch All Sessions (Sorted by Date) ---
+    const sessions = await BatchSession.find({ batch_obj_id: batch._id })
+      .sort({ date: 1 }) // Chronological order
       .lean();
 
-    const formattedStudents = students.map(s => ({
-      student_obj_id: s._id,
-      name: s.name,
-      email: s.email,
-      student_number: s.student_number
-    }));
+    // --- 3. Fetch Enrolled Students ---
+    const relations = await BatchStudentRelation.find({ batch_obj_id: batch._id })
+      .select("student_obj_id joinedAt")
+      .lean();
 
-    // --- PART D: Return Combined Response ---
-    return sendResponse(res, 200, true, "Batch details retrieved successfully.", {
-      batchId: batchDoc.batchId, // <--- Added here at the root
-      weeks: weeks,
-      students: formattedStudents
+    const studentIds = relations.map(r => r.student_obj_id);
+    
+    const students = await Student.find({ _id: { $in: studentIds } })
+      .select("name email student_number mobile")
+      .lean();
+
+    // Combine student details with their join date
+    const formattedStudents = students.map(student => {
+      const rel = relations.find(r => r.student_obj_id.toString() === student._id.toString());
+      return {
+        _id: student._id,
+        name: student.name,
+        email: student.email,
+        student_number: student.student_number,
+        mobile: student.mobile,
+        joinedAt: rel ? rel.joinedAt : null
+      };
     });
 
+    // --- 4. Construct Final Response ---
+    const responseData = {
+      // --- Batch Metadata ---
+      _id: batch._id,
+      batchId: batch.batchId,
+      batchType: batch.batchType, // "ONLINE" or "OFFLINE"
+      startDate: batch.startDate,
+      classLocation: batch.classLocation || "N/A", // Only relevant if OFFLINE
+      cohort: batch.cohort,
+      level: batch.level,
+      description: batch.description,
+
+      // --- Arrays ---
+      sessions: sessions, 
+      students: formattedStudents
+    };
+
+    return sendResponse(res, 200, true, "Batch details fetched successfully.", responseData);
+
   } catch (err) {
-    console.error("getBatchAndWeekDetailsForTeacher err", err);
-    return sendResponse(res, 500, false, "Server error retrieving batch details.");
+    console.error("getBatchAndSessionDetailsForTeacher error:", err);
+    return sendResponse(res, 500, false, "Server error fetching batch details.");
   }
 };
