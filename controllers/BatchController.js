@@ -360,32 +360,76 @@ export const getStudentInSBatchForAdmin = async (req, res) => {
 //              STUDENT CONTROLLERS
 // ==========================================
 
+
+
+
+
 /**
  * Controller: myLiveBatchesForStudent
  * Input: Auth Token
- * Output: Array of { batchId, batch_obj_id } for enrolled LIVE batches
+ * Output: Detailed Array of enrolled LIVE batches
  */
 export const myLiveBatchesForStudent = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
 
-    // 1. Get enrolled batches
-    const relations = await BatchStudentRelation.find({ student_obj_id: studentId }).select("batch_obj_id");
-    if (!relations.length) return sendResponse(res, 200, true, "No batches.", []);
+    // 1. Get enrolled batches from Relation table
+    const relations = await BatchStudentRelation.find({ student_obj_id: studentId })
+      .select("batch_obj_id")
+      .lean();
+
+    if (!relations.length) {
+      return sendResponse(res, 200, true, "No batches found.", []);
+    }
     
-    const batchObjIds = relations.map(r => r.batch_obj_id);
+    const enrolledIds = relations.map(r => r.batch_obj_id);
 
-    // 2. Filter LIVE ones
-    const liveBatches = await BatchStatus.find({ 
-      batch_obj_id: { $in: batchObjIds }, 
+    // 2. Filter which of these are actually "LIVE" using BatchStatus
+    const liveStatuses = await BatchStatus.find({ 
+      batch_obj_id: { $in: enrolledIds }, 
       status: "LIVE" 
-    }).select("batchId batch_obj_id");
+    }).select("batch_obj_id").lean();
 
-    return sendResponse(res, 200, true, "Live batches retrieved.", liveBatches);
+    if (!liveStatuses.length) {
+      return sendResponse(res, 200, true, "No live batches found.", []);
+    }
+
+    const liveBatchIds = liveStatuses.map(s => s.batch_obj_id);
+
+    // 3. Fetch full details from the main Batch collection
+    const batches = await Batch.find({ _id: { $in: liveBatchIds } }).lean();
+
+    // 4. Format the response (Hide offline fields if ONLINE)
+    const formattedBatches = batches.map(batch => {
+      // Fields common to both Online and Offline
+      const batchData = {
+        _id: batch._id,
+        batchId: batch.batchId,
+        cohort: batch.cohort,
+        level: batch.level,
+        startDate: batch.startDate,
+        batchType: batch.batchType, // ONLINE or OFFLINE
+        description: batch.description
+      };
+
+      // Only add these if the batch is OFFLINE
+      if (batch.batchType === 'OFFLINE') {
+        batchData.classLocation = batch.classLocation;
+        batchData.cityCode = batch.cityCode;
+        batchData.type = batch.type; // 'S', 'C', 'I'
+      }
+
+      return batchData;
+    });
+
+    return sendResponse(res, 200, true, "Live batches retrieved successfully.", formattedBatches);
+
   } catch (err) {
-    return sendResponse(res, 500, false, "Server error.");
+    console.error("myLiveBatchesForStudent error:", err);
+    return sendResponse(res, 500, false, "Server error retrieving live batches.");
   }
 };
+
 
 /**
  * Controller: getSessionForABatchForStudent
@@ -396,63 +440,159 @@ export const getSessionForABatchForStudent = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
     const { batch_obj_id } = req.query;
-    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    const isEnrolled = await BatchStudentRelation.exists({ student_obj_id: studentId, batch_obj_id });
-    if (!isEnrolled) return sendResponse(res, 403, false, "Not enrolled.");
+    if (!batch_obj_id)
+      return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    const sessions = await BatchSession.find({ batch_obj_id }).sort({ session_number: 1 }).lean();
+    const isEnrolled = await BatchStudentRelation.exists({
+      student_obj_id: studentId,
+      batch_obj_id
+    });
+    if (!isEnrolled)
+      return sendResponse(res, 403, false, "Not enrolled.");
+
+    // find batch to know ONLINE or OFFLINE
+    const batch = await Batch.findById(batch_obj_id).lean();
+    if (!batch)
+      return sendResponse(res, 404, false, "Batch not found.");
+
+    let sessions = await BatchSession.find({ batch_obj_id })
+      .sort({ session_number: 1 })
+      .lean();
+
+    // ---------------------------------------------------------
+    // APPLY ONLINE BATCH LOGIC → hide link UNTIL 1 hour before
+    // ---------------------------------------------------------
+    if (batch.batchType === "ONLINE") {
+      const now = new Date();
+
+      sessions = sessions.map(session => {
+        const updated = { ...session };
+
+        // Convert startTime (string) + date into a Date object
+        const sessionStart = new Date(session.date);
+        const [timeStr, modifier] = session.startTime.split(" ");
+        let [hours, minutes] = timeStr.split(":").map(Number);
+
+        if (modifier === "PM" && hours !== 12) hours += 12;
+        if (modifier === "AM" && hours === 12) hours = 0;
+
+        sessionStart.setHours(hours, minutes, 0, 0);
+
+        const oneHourBefore = new Date(sessionStart.getTime() - 60 * 60 * 1000);
+
+        // If more than 60 minutes remaining → hide link
+        if (now < oneHourBefore) {
+          updated.meetingLinkOrLocation = "Link will be shared soon";
+        }
+
+        return updated;
+      });
+    }
+
+    // ---------------------------------------------------------
+    // For OFFLINE batch -> return sessions unchanged
+    // ---------------------------------------------------------
+
     return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
+
   } catch (err) {
+    console.error("getSessionForABatchForStudent err", err);
     return sendResponse(res, 500, false, "Server error.");
   }
 };
 
+
+
+
 /**
  * Controller: getTodayLiveBatchInfoForStudent
- * Input: Body { batch_obj_id }
- * Output: { hasClassToday: bool, sessionDetails (if true), nextClassDate, batchInfo }
  */
 export const getTodayLiveBatchInfoForStudent = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
     const { batch_obj_id } = req.body;
-    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    const isEnrolled = await BatchStudentRelation.exists({ student_obj_id: studentId, batch_obj_id });
-    if (!isEnrolled) return sendResponse(res, 403, false, "Not enrolled.");
+    if (!batch_obj_id)
+      return sendResponse(res, 400, false, "batch_obj_id required.");
+
+    const isEnrolled = await BatchStudentRelation.exists({
+      student_obj_id: studentId,
+      batch_obj_id
+    });
+    if (!isEnrolled)
+      return sendResponse(res, 403, false, "Not enrolled.");
 
     const batch = await Batch.findById(batch_obj_id);
-    if (!batch) return sendResponse(res, 404, false, "Batch not found.");
+    if (!batch)
+      return sendResponse(res, 404, false, "Batch not found.");
 
-    // Define Today's Range
-    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
+    // Today range
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
-    // 1. Check Today
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Find today's session (if any)
     const todaysSession = await BatchSession.findOne({
       batch_obj_id: batch._id,
       date: { $gte: startOfDay, $lte: endOfDay }
     });
 
-    // 2. Find Next Class
+    // Next session (future after today)
     const nextSession = await BatchSession.findOne({
       batch_obj_id: batch._id,
       date: { $gt: endOfDay }
     }).sort({ date: 1 });
 
-    const response = {
+    let sessionResponse = null;
+
+    if (todaysSession) {
+      sessionResponse = todaysSession.toObject(); // clone object
+
+      // ONLY APPLY TIME CHECK FOR ONLINE SESSIONS
+      if (batch.batchType === "ONLINE") {
+        const now = new Date();
+
+        // Combine today's date with session startTime string, e.g. "10:00 AM"
+        const sessionStart = new Date(todaysSession.date);
+        const [timeStr, modifier] = todaysSession.startTime.split(" ");
+        let [hours, minutes] = timeStr.split(":").map(Number);
+
+        if (modifier === "PM" && hours !== 12) hours += 12;
+        if (modifier === "AM" && hours === 12) hours = 0;
+
+        sessionStart.setHours(hours, minutes, 0, 0);
+
+        const oneHourBefore = new Date(sessionStart.getTime() - 60 * 60 * 1000);
+
+        // Check if link can be revealed
+        if (now < oneHourBefore) {
+          // Too early → hide link
+          sessionResponse.meetingLinkOrLocation = "Link will be shared soon (1 hour before class)";
+        }
+        // else → within 1 hr window → return original link
+      }
+    }
+
+    const responseData = {
       batchId: batch.batchId,
       batchType: batch.batchType,
-      defaultLocation: batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
-      
+      defaultLocation:
+        batch.batchType === "OFFLINE"
+          ? batch.classLocation
+          : "Online",
+
       hasClassToday: !!todaysSession,
-      sessionDetails: todaysSession || null,
-      
-      nextClassDate: nextSession ? nextSession.date.toDateString() : "Not scheduled"
+      sessionDetails: sessionResponse,
+
+      nextClassDate: nextSession
+        ? nextSession.date.toDateString()
+        : "Not scheduled"
     };
 
-    return sendResponse(res, 200, true, "Info retrieved.", response);
+    return sendResponse(res, 200, true, "Info retrieved.", responseData);
   } catch (err) {
     console.error("getTodayLiveBatchInfoForStudent err", err);
     return sendResponse(res, 500, false, "Server error.");
