@@ -29,7 +29,7 @@ export const verifyTokenSafe = (token) => {
 
 var count =0 ; 
 export const requireAuthCookie = (req, res, next) => {
-  console.log(count++)
+  console.log(count++) 
   try {
     const token = req.cookies?.auth_token;
     if (!token) return sendResponse(res, 401, false, "Missing auth cookie , you are not logged in ");
