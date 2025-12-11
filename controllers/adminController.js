@@ -11,7 +11,7 @@ export const getAllStudentDetails = async (req, res) => {
   try {
     // Find all students and select only the required fields
     const students = await Student.find({})
-      .select("name email class _id")
+      .select("name email class _id student_number")
       .lean(); // Use .lean() for faster, plain JS objects
 
     // Rename 'name' to 'username' in the response
@@ -19,7 +19,8 @@ export const getAllStudentDetails = async (req, res) => {
       _id: student._id,
       username: student.name, // Rename 'name' to 'username'
       email: student.email,
-      class: student.class
+      class: student.class,
+      student_number : student.student_number
     }));
 
     return sendResponse(res, 200, true, "Students retrieved successfully.", formattedStudents);

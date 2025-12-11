@@ -48,6 +48,7 @@ import {
   getUnresolvedDoubts, 
   resolveDoubt 
 } from "./controllers/doubtController.js";
+import { attendanceStatusPerSession, attendanceStatusPerStudent, markAttendance } from "./controllers/AttendanceController.js";
 
 // ---- Server & DB Initialization ----
 
@@ -133,8 +134,32 @@ app.get("/api/admin/getstudentofabatch", requireAuthCookie, requireAdmin, getStu
 
 
 
+///////////////////// attenmdance route 
 
 
+app.post(
+  "/api/teacher/mark-attendance",
+  requireAuthCookie,
+  requireAdmin,
+  markAttendance
+);
+
+
+
+app.post(
+  "/api/admin/attendance-status",
+  requireAuthCookie,
+  requireAdmin, 
+  attendanceStatusPerSession
+);
+
+
+app.post(
+  "/api/admin/student-attendance-history",
+  requireAuthCookie,
+  requireAdmin, 
+  attendanceStatusPerStudent
+);
 
 
 
