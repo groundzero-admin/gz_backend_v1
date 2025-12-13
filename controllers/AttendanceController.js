@@ -1,6 +1,6 @@
 import Attendance from "../models/Attendance.js"; // Adjust path if needed
 import { sendResponse } from "../middleware/auth.js";
-
+import StudentCredit from "../models/StudentCredit.js";
 import BatchSession from "../models/BatchSession.js";
 import BatchStudentRelation from "../models/BatchStudentRelation.js";
 import Student from "../models/Student.js";
@@ -19,44 +19,87 @@ export const markAttendance = async (req, res) => {
 
     // 1. Basic Validation
     if (!student_obj_id || !session_obj_id || !status) {
-      return sendResponse(res, 400, false, "Missing required fields: student_obj_id, session_obj_id, status.");
+      return sendResponse(res, 400, false, "Missing required fields.");
     }
-
     if (!["PRESENT", "ABSENT"].includes(status)) {
       return sendResponse(res, 400, false, "Status must be 'PRESENT' or 'ABSENT'.");
     }
 
-    // 2. Perform Upsert (Update or Insert)
-    const attendanceRecord = await Attendance.findOneAndUpdate(
-      { 
-        student_obj_id: student_obj_id, 
-        session_obj_id: session_obj_id 
-      },
-      { 
-        $set: { status: status, markedAt: new Date() } 
-      },
-      { 
-        new: true,          // Return the updated doc
-        upsert: true,       // Create if doesn't exist
-        setDefaultsOnInsert: true 
+    // 2. Fetch Session to determine Cost
+    const session = await BatchSession.findById(session_obj_id);
+    if (!session) {
+      return sendResponse(res, 404, false, "Session not found.");
+    }
+
+    let amountToChange = 0;
+    if (session.sessionType === 'ONLINE') amountToChange = 1000;
+    else if (session.sessionType === 'OFFLINE') amountToChange = 1500;
+
+    // 3. Fetch Existing Attendance Record
+    const existingRecord = await Attendance.findOne({ 
+      student_obj_id, 
+      session_obj_id 
+    });
+
+    const studentCredit = await StudentCredit.findOne({ student_obj_id });
+    let warningMsg = null;
+    let action = "NONE"; // NONE, DEDUCT, REFUND
+
+    // --- 4. DETERMINE ACTION ---
+    
+    if (!existingRecord) {
+      // CASE A: First time marking
+      if (status === "PRESENT") action = "DEDUCT";
+    } else {
+      // CASE B: Correction / Update
+      if (existingRecord.status === "ABSENT" && status === "PRESENT") {
+        action = "DEDUCT"; // Was absent, now marked present -> Charge them
+      } else if (existingRecord.status === "PRESENT" && status === "ABSENT") {
+        action = "REFUND"; // Mistakenly marked present, now absent -> Give money back
       }
+    }
+
+    // --- 5. EXECUTE FINANCIAL TRANSACTION ---
+    if (action !== "NONE") {
+      if (!studentCredit) {
+        warningMsg = "Student has no credit wallet.";
+      } else {
+        if (action === "DEDUCT") {
+          // Check balance before deducting
+          if (studentCredit.amount < amountToChange) {
+            studentCredit.amount = 0; // "Fishy" logic: Clamp to 0
+            warningMsg = "Student seems to be fishy (Insufficient Balance). Credits set to 0.";
+          } else {
+            studentCredit.amount -= amountToChange;
+          }
+        } else if (action === "REFUND") {
+          // Simply add the amount back
+          studentCredit.amount += amountToChange;
+        }
+        await studentCredit.save();
+      }
+    }
+
+    // 6. Update Attendance Record (Upsert)
+    const updatedRecord = await Attendance.findOneAndUpdate(
+      { student_obj_id, session_obj_id },
+      { $set: { status: status, markedAt: new Date() } },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    return sendResponse(res, 200, true, "Attendance marked successfully.", attendanceRecord);
+    // 7. Response
+    let message = "Attendance updated successfully.";
+    if (action === "DEDUCT") message += " Credits deducted.";
+    if (action === "REFUND") message += " Credits refunded.";
+    if (warningMsg) message += ` WARNING: ${warningMsg}`;
+
+    return sendResponse(res, 200, true, message, updatedRecord);
 
   } catch (err) {
     console.error("markAttendance error:", err);
     return sendResponse(res, 500, false, "Server error marking attendance.");
   }
 };
-
-
-
-
-
-
-
-
 
 
 

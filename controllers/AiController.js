@@ -5,6 +5,10 @@ import ChatThread from "../models/ChatThread.js";
 import PromptHistory from '../models/PromptHistory.js';
 import Student from "../models/Student.js";
 import StudentParentRelation from "../models/StudentParentRelation.js";
+import StudentCredit from "../models/StudentCredit.js";
+import mongoose from "mongoose";
+
+
 
 // --- OpenAI Client Setup ---
 const client = new OpenAI({
@@ -90,7 +94,6 @@ async function analyzeTextWithBadPromptAssistant(textToAnalyze) {
 }
 
 // --- API Controllers ---
-
 /**
  * API 1: Setup Chat Thread (Student Only)
  * POST /api/student/setupchatthread
@@ -98,6 +101,25 @@ async function analyzeTextWithBadPromptAssistant(textToAnalyze) {
 export const setupChatThread = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
+
+    // ----------------------------------------
+    // 1️⃣ CHECK STUDENT CREDIT
+    // ----------------------------------------
+    const credits = await StudentCredit.aggregate([
+      { $match: { student_obj_id: new mongoose.Types.ObjectId(studentId) } },
+      { $group: { _id: null, total: { $sum: "$amount" } } }
+    ]);
+
+    const creditScore = credits.length > 0 ? credits[0].total : 0;
+
+    // If credit = 0 → BLOCK ACCESS COMPLETELY
+    if (creditScore <= 0) {
+      return sendResponse(res, 403, false, "Not enough credit to access chat.");
+    }
+
+    // ----------------------------------------
+    // 2️⃣ CHECK FOR EXISTING CHAT THREAD
+    // ----------------------------------------
     const existingThread = await ChatThread.findOne({ studentId: studentId });
 
     if (existingThread) {
@@ -107,11 +129,16 @@ export const setupChatThread = async (req, res) => {
       });
     }
 
+    // ----------------------------------------
+    // 3️⃣ CREATE NEW CHAT THREAD
+    // ----------------------------------------
     const newThreadId = await initializeGenericThread();
+
     const newChatThread = new ChatThread({
       studentId: studentId,
       thread_id: newThreadId,
     });
+
     await newChatThread.save();
 
     return sendResponse(res, 201, true, "New chat thread created.", {
@@ -120,12 +147,16 @@ export const setupChatThread = async (req, res) => {
 
   } catch (err) {
     console.error("setupChatThread err", err);
+
     if (err.code === 11000) {
       return sendResponse(res, 409, false, "A thread for this student already exists.");
     }
+
     return sendResponse(res, 500, false, "Server error setting up chat.");
   }
 };
+
+
 
 /**
  * API 2: Ask Question (Student Only)

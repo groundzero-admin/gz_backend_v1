@@ -5,6 +5,9 @@ import Student from "../models/Student.js";
 import Teacher from "../models/Teacher.js";
 import Parent from "../models/Parent.js";
 import Invitation from "../models/Invitation.js";
+import StudentCredit from "../models/StudentCredit.js";
+
+
 
 export const loginUser = async (req, res) => {
   try {
@@ -207,48 +210,68 @@ export const whoAmI = async (req, res) => {
 
 
 
-// checmingrole check 
 export const checkRole = async (req, res) => {
-  // This controller is only reached if requireAuthCookie middleware succeeds
   try {
-    // 1. Get the role from the frontend request body
     const { role: roleFromFrontend } = req.body;
-
-    // 2. Get the *actual* user data from the verified token
     const { role: actualRole, id: userId, email: userEmail } = req.authPayload;
 
     if (!roleFromFrontend) {
       return sendResponse(res, 400, false, "Role is required in the request body.");
     }
 
-    // 3. Compare the roles
     if (actualRole === roleFromFrontend) {
-      // SUCCESS: Roles match
-      
-      // Fetch user's name for the response data
       let user;
-      if (actualRole === 'admin') user = await Admin.findById(userId).select("name");
-      else if (actualRole === 'student') user = await Student.findById(userId).select("name  student_number");
-      else if (actualRole === 'teacher') user = await Teacher.findById(userId).select("name teacher_number");
-      else if (actualRole === 'parent') user = await Parent.findById(userId).select("name");
-      
-      const username = user ? user.name : "Unknown"; // Fallback
-      const user_number =  actualRole == 'student' ?  user.student_number  :  actualRole == 'teacher' ? user.teacher_number : "missing number" ;   
+
+      if (actualRole === "admin") {
+        user = await Admin.findById(userId).select("name");
+
+      } else if (actualRole === "student") {
+        user = await Student.findById(userId).select("name student_number email");
+
+      } else if (actualRole === "teacher") {
+        user = await Teacher.findById(userId).select("name teacher_number");
+
+      } else if (actualRole === "parent") {
+        user = await Parent.findById(userId).select("name");
+      }
+
+      const username = user?.name || "Unknown";
+      const user_number =
+        actualRole === "student"
+          ? user.student_number
+          : actualRole === "teacher"
+          ? user.teacher_number
+          : "missing number";
+
+      let credit = null;
+
+      // FETCH ONLY CREDIT INFO IF USER IS STUDENT
+      if (actualRole === "student") {
+        const studentCredits = await StudentCredit.find({
+          student_obj_id: userId,
+          studentEmail: userEmail
+        }).select("amount currency source createdAt");
+
+        // return only the essential things
+        credit = studentCredits.map(c => ({
+          amount: c.amount,
+          currency: c.currency,
+         
+        }));
+      }
 
       return sendResponse(res, 200, true, "Role verified.", {
-        username: username,
+        username,
         role: actualRole,
         email: userEmail,
-        user_number : user_number 
-
-      });
-
-    } else {
-      // FAILURE: Roles do not match
-      return sendResponse(res, 403, false, "Unauthorized access. You are not allowed.", {
-        correctRole: actualRole,
+        user_number,
+        credit // already simplified
       });
     }
+
+    return sendResponse(res, 403, false, "Unauthorized access. You are not allowed.", {
+      correctRole: actualRole,
+    });
 
   } catch (err) {
     console.error("checkRole err", err);

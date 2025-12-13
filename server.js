@@ -17,7 +17,7 @@ import { requireAdmin, requireStudent , requireTeacher,
 // Controller Imports
 import { getAllStudentDetails  } from "./controllers/adminController.js";
 import { createInvite } from "./controllers/inviteController.js";
-import { validateInvite, onboardUser } from "./controllers/onboardController.js";
+import {  completeStudentRegistration } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
 import { requireAuthCookie } from "./middleware/auth.js";
 import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
@@ -49,6 +49,9 @@ import {
   resolveDoubt 
 } from "./controllers/doubtController.js";
 import { attendanceStatusPerSession, attendanceStatusPerStudent, markAttendance } from "./controllers/AttendanceController.js";
+import { stripeWebhook } from "./controllers/webhookController.js";
+import { createCheckoutSession } from "./controllers/paymentController.js";
+import { getNewJoinersList, sendCredentialsToJoiner, validateInvitationToken } from "./controllers/courseOrderController.js";
 
 // ---- Server & DB Initialization ----
 
@@ -60,6 +63,25 @@ const PORT = process.env.PORT || 5000;
 
 // Connect to MongoDB
 connectDB();
+
+
+
+
+
+
+// 2. Define the Webhook Route FIRST (Before express.json)
+// We use express.raw() here because Stripe needs the raw request body to verify the signature.
+app.post(
+  "/api/webhook", 
+  express.raw({ type: "application/json" }), 
+  stripeWebhook
+);
+
+
+
+
+
+
 
 // ---- Core Middleware ----
 app.use(express.json());
@@ -165,6 +187,22 @@ app.post(
 
 
 
+app.get(
+  "/api/admin/newjoinneslist", 
+  requireAuthCookie, 
+  requireAdmin, 
+  getNewJoinersList
+);
+
+
+
+
+app.post(
+  "/api/admin/send-credentials",
+  requireAuthCookie,
+  requireAdmin, // Ensure only admin can do this
+  sendCredentialsToJoiner
+);
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -173,10 +211,17 @@ app.post(
 
 
 ////////////////////////////// magic link user part 
-app.post("/api/invite-validate", validateInvite); // Also handles GET
-app.post("/api/onboard", onboardUser);
+// app.post("/api/invite-validate", validateInvite); // Also handles GET
+// app.post("/api/onboard", onboardUser);
 
 
+
+
+///// new version 
+app.get("/api/validate-invitation", validateInvitationToken);
+
+////only for student 
+app.post("/api/complete-student-registration", completeStudentRegistration);
 
 
 
@@ -408,6 +453,15 @@ app.post(
 
 
 
+
+
+
+
+
+
+
+/////////////////////////////////////////////////////////    payment 
+app.post("/api/create-checkout-session" , createCheckoutSession)
 
 
 

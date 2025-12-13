@@ -24,6 +24,7 @@
     "nodemailer": "^7.0.10",
     "openai": "^6.8.1",
     "resend": "^6.4.2",
-    "stream": "^0.0.3"
+    "stream": "^0.0.3",
+    "stripe": "^20.0.0"
   }
 }

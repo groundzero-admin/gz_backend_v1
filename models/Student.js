@@ -5,7 +5,6 @@ const studentSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   password: String,
   role: { type: String, default: "student" },
-  age: Number,
   mobile: String,
   class: Number,
   student_number: { type: String, unique: true },  // NEW FIELD
