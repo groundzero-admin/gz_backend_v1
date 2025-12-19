@@ -16,7 +16,7 @@ import { requireAdmin, requireStudent , requireTeacher,
 
 // Controller Imports
 import { getAllStudentDetails  } from "./controllers/adminController.js";
-import { createInvite } from "./controllers/inviteController.js";
+// import { createInvite } from "./controllers/inviteController.js";
 import {  completeStudentRegistration } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
 import { requireAuthCookie } from "./middleware/auth.js";
@@ -104,7 +104,7 @@ app.use(
 // Admin
 
 
-app.post("/api/admin/invite", requireAdmin, createInvite);
+// app.post("/api/admin/invite", requireAdmin, createInvite);
 // app.post("/api/admin/actionrequest", requireAdmin, actionRequest);
 // app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
 app.get("/api/admin/listallteachers", requireAuthCookie, requireAdmin, listAllTeachers);
@@ -196,7 +196,7 @@ app.get(
 
 
 
-
+/////////////////////// for new joinnes , only student s who paid 
 app.post(
   "/api/admin/send-credentials",
   requireAuthCookie,

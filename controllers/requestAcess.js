@@ -1,15 +1,15 @@
-import { sendResponse, signToken } from "../middleware/auth.js";
-import Admin from "../models/Admin.js";
-import Student from "../models/Student.js";
-import Teacher from "../models/Teacher.js";
-import Parent from "../models/Parent.js";
-import Invitation from "../models/Invitation.js";
-// import AccessRequest from "../models/AccessRequest.js";
-import { Resend } from "resend";
+// import { sendResponse, signToken } from "../middleware/auth.js";
+// import Admin from "../models/Admin.js";
+// import Student from "../models/Student.js";
+// import Teacher from "../models/Teacher.js";
+// import Parent from "../models/Parent.js";
+// import Invitation from "../models/Invitation.js";
+// // import AccessRequest from "../models/AccessRequest.js";
+// import { Resend } from "resend";
 
-const { RESEND_EMAIL_API_KEY, SMTP_USER, FRONTEND_BASE } = process.env;
+// const { RESEND_EMAIL_API_KEY, SMTP_USER, FRONTEND_BASE } = process.env;
 
-const resend = new Resend(RESEND_EMAIL_API_KEY);
+// const resend = new Resend(RESEND_EMAIL_API_KEY);
 
 /**
  * -----------------------------------------------------------------
@@ -84,51 +84,51 @@ const resend = new Resend(RESEND_EMAIL_API_KEY);
  * INVITATION SENDER (specific to AccessRequest flow)
  * -----------------------------------------------------------------
  */
-export const createAndSendInvitation = async (email, role, req, parentEmails = [], childEmails = []) => {
-  const e = String(email).toLowerCase().trim();
+// export const createAndSendInvitation = async (email, role, req, parentEmails = [], childEmails = []) => {
+//   const e = String(email).toLowerCase().trim();
 
-  if (!["student", "teacher", "parent"].includes(role)) {
-    throw new Error("Invalid role specified.");
-  }
+//   if (!["student", "teacher", "parent"].includes(role)) {
+//     throw new Error("Invalid role specified.");
+//   }
 
-  await Invitation.findOneAndDelete({ email: e });
+//   await Invitation.findOneAndDelete({ email: e });
 
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  const token = signToken({ email: e, role }, "15m");
-  // const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+//   const otp = Math.floor(100000 + Math.random() * 900000).toString();
+//   const token = signToken({ email: e, role }, "15m");
+//   // const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
 
-  const inviteDoc = new Invitation({
-    email: e,
-    role,
-    otp,
-    token,
-    // expiresAt,
-    parentEmails: Array.isArray(parentEmails)
-      ? parentEmails.map(x => String(x).toLowerCase().trim())
-      : [],
-    childEmails: Array.isArray(childEmails)
-      ? childEmails.map(x => String(x).toLowerCase().trim())
-      : []
-  });
+//   const inviteDoc = new Invitation({
+//     email: e,
+//     role,
+//     otp,
+//     token,
+//     // expiresAt,
+//     parentEmails: Array.isArray(parentEmails)
+//       ? parentEmails.map(x => String(x).toLowerCase().trim())
+//       : [],
+//     childEmails: Array.isArray(childEmails)
+//       ? childEmails.map(x => String(x).toLowerCase().trim())
+//       : []
+//   });
 
-  await inviteDoc.save();
+//   await inviteDoc.save();
 
-  const link = `${FRONTEND_BASE}/invite/onboard?token=${encodeURIComponent(token)}&role=${encodeURIComponent(role)}`;
+//   const link = `${FRONTEND_BASE}/invite/onboard?token=${encodeURIComponent(token)}&role=${encodeURIComponent(role)}`;
 
-  const html = `<p>You have been invited as <b>${role}</b>.</p>
-                <p>OTP (valid 15m): <b>${otp}</b></p>
-                <p>Validate link: <a href="${link}">${link}</a></p>`;
+//   const html = `<p>You have been invited as <b>${role}</b>.</p>
+//                 <p>OTP (valid 15m): <b>${otp}</b></p>
+//                 <p>Validate link: <a href="${link}">${link}</a></p>`;
 
-  // --- RESEND MAIL SEND ---
-  await resend.emails.send({
-    from: SMTP_USER,
-    to: e,
-    subject: `Invite as ${role}`,
-    html,
-  });
+//   // --- RESEND MAIL SEND ---
+//   await resend.emails.send({
+//     from: SMTP_USER,
+//     to: e,
+//     subject: `Invite as ${role}`,
+//     html,
+//   });
 
-  return inviteDoc;
-};
+//   return inviteDoc;
+// };
 
 /**
  * -----------------------------------------------------------------

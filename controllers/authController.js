@@ -4,7 +4,7 @@ import Admin from "../models/Admin.js";
 import Student from "../models/Student.js";
 import Teacher from "../models/Teacher.js";
 import Parent from "../models/Parent.js";
-import Invitation from "../models/Invitation.js";
+// import Invitation from "../models/Invitation.js";
 import StudentCredit from "../models/StudentCredit.js";
 
 
@@ -114,12 +114,12 @@ export const loginUser = async (req, res) => {
     }
 
     // INVITATION PENDING
-    const inv = await Invitation.findOne({ email: e });
-    if (inv)
-      return res.status(403).json({
-        success: false,
-        message: "Invitation pending. Check email for OTP/link",
-      });
+    // const inv = await Invitation.findOne({ email: e });
+    // if (inv)
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: "Invitation pending. Check email for OTP/link",
+    //   });
 
     // ACCOUNT NOT FOUND
     return res.status(404).json({ success: false, message: "Account not found" });
