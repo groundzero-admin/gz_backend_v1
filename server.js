@@ -20,7 +20,7 @@ import { createInvite } from "./controllers/inviteController.js";
 import {  completeStudentRegistration } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
 import { requireAuthCookie } from "./middleware/auth.js";
-import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
+// import { actionRequest, getAllAccessRequests, requestAccess } from "./controllers/requestAcess.js";
 import { getMyChildrenDetails } from "./controllers/parentController.js";
 import { getBatchAndSessionDetailsForTeacher , getLiveBatchInfoTeacher, getTodaysLiveBatchesForTeacher, listAllTeachers  } from "./controllers/teacherController.js";
 import { askQ  , getMyChildHistory, getStudentFullHistory  , loadMyChat, setupChatThread } from "./controllers/AiController.js";
@@ -105,8 +105,8 @@ app.use(
 
 
 app.post("/api/admin/invite", requireAdmin, createInvite);
-app.post("/api/admin/actionrequest", requireAdmin, actionRequest);
-app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
+// app.post("/api/admin/actionrequest", requireAdmin, actionRequest);
+// app.get("/api/admin/getallrequest", requireAdmin, getAllAccessRequests );
 app.get("/api/admin/listallteachers", requireAuthCookie, requireAdmin, listAllTeachers);
 
 
@@ -251,7 +251,7 @@ app.post("/api/checkrole", requireAuthCookie, checkRole);
 
 
 //////////////// this is req that is sent by user during signup , that hey admin pls create my account  , new join reuest , open route 
-app.post("/api/requestaccess", requestAccess);
+// app.post("/api/requestaccess", requestAccess);
 /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
