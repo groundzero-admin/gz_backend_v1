@@ -160,7 +160,7 @@ app.get("/api/admin/getstudentofabatch", requireAuthCookie, requireAdmin, getStu
 
 
 app.post(
-  "/api/teacher/mark-attendance",
+  "/api/admin/mark-attendance",
   requireAuthCookie,
   requireAdmin,
   markAttendance
