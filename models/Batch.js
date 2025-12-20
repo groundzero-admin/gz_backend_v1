@@ -1,41 +1,59 @@
 import mongoose from "mongoose";
 
-const batchSchema = new mongoose.Schema({
-  batchId: { type: String, required: true, unique: true }, // e.g., SPA001
-  
-  // Input fields stored
-  cohort: { type: String, required: true }, 
-  level: { type: String, required: true }, 
-  
-  startDate: { type: Date, required: true },
-  
-  // 'S' = School, 'C' = Society, 'I' = Individual
-  type: { type: String  , enum: ['S', 'C', 'I'] }, 
-  
-  // --- NEW FIELDS ---
-  batchType: { 
-    type: String, 
-    required: true, 
-    enum: ['ONLINE', 'OFFLINE'] 
-  },
+const batchSchema = new mongoose.Schema(
+  {
+    batchName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
 
-  // Conditionally Required Fields (Only for OFFLINE)
-  classLocation: { 
-    type: String, 
-    required: function() { return this.batchType === 'OFFLINE'; },
-    default: "" 
-  },
-  cityCode: { 
-    type: String, 
-    required: function() { return this.batchType === 'OFFLINE'; },
-    default: ""
-  },
-  // ------------------
+    level: {
+      type: String,
+      required: false,
+      trim: true,
+    },
 
-  description: { type: String, default: "" },
-  
-  createdAt: { type: Date, default: Date.now }
-});
+    startDate: {
+      type: Date,
+      required: true,
+    },
+
+    batchType: {
+      type: String,
+      required: true,
+      enum: ["ONLINE", "OFFLINE"],
+    },
+
+    // Required ONLY when batchType === "OFFLINE"
+    classLocation: {
+      type: String,
+      required: function () {
+        return this.batchType === "OFFLINE";
+      },
+      default: "",
+      trim: true,
+    },
+
+    cityCode: {
+      type: String,
+      required: function () {
+        return this.batchType === "OFFLINE";
+      },
+      default: "",
+      trim: true,
+    },
+
+    description: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+  },
+  {
+    timestamps: true, // adds createdAt & updatedAt automatically
+  }
+);
 
 const Batch = mongoose.model("Batch", batchSchema);
 export default Batch;

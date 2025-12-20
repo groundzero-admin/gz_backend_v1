@@ -1,28 +1,37 @@
 import mongoose from "mongoose";
 
 const doubtSchema = new mongoose.Schema({
+  // Student
   student_obj_id: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Student",
     required: true
   },
+
+  // Snapshot for quick lookup
   student_number: {
-    type: String, // e.g., "GZST004"
+    type: String,
     required: true
   },
-  batchId: {
-    type: String, // e.g., "SPA001"
+
+  // Batch (NEW SOURCE OF TRUTH)
+  batch_obj_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Batch",
     required: true
   },
+
   doubt_content: {
     type: String,
     required: true,
     trim: true
   },
+
   isresolved: {
     type: Boolean,
     default: false
   },
+
   createdAt: {
     type: Date,
     default: Date.now
@@ -30,8 +39,8 @@ const doubtSchema = new mongoose.Schema({
 });
 
 // Indexes for fast retrieval
-doubtSchema.index({ student_obj_id: 1 }); // For student fetching history
-doubtSchema.index({ isresolved: 1, batchId: 1 }); // For teachers filtering
+doubtSchema.index({ student_obj_id: 1 });
+doubtSchema.index({ batch_obj_id: 1, isresolved: 1 });
 
 const Doubt = mongoose.model("Doubt", doubtSchema);
 export default Doubt;

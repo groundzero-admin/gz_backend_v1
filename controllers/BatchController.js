@@ -10,17 +10,21 @@ import StudentCredit from "../models/StudentCredit.js";
 
 
 
-// --- Helper to generate ID ---
-const getNextBatchId = async (cohortCode, levelCode) => {
-  const key = `${cohortCode}${levelCode}`;
+
+/////////// to genrate new batch name 
+const getNextBatchName = async (rawBatchName) => {
+  const key = String(rawBatchName).toUpperCase().trim(); // SPARK
+
   const counter = await BatchCounter.findOneAndUpdate(
-    { key: key },
+    { key },
     { $inc: { count: 1 } },
     { new: true, upsert: true }
   );
+
   const paddedCount = String(counter.count).padStart(3, "0");
-  return `${key}${paddedCount}`;
+  return `${key}_${paddedCount}`; // SPARK001
 };
+
 
 // ==========================================
 //              ADMIN CONTROLLERS
@@ -33,122 +37,117 @@ const getNextBatchId = async (cohortCode, levelCode) => {
  */
 export const createBatchForAdmin = async (req, res) => {
   try {
-    const { 
-      cohort, level, description, type, startDate, batchType, 
-      citycode, classLocation 
+    const {
+      batchName,
+      level,
+      description,
+      startDate,
+      batchType,
+      citycode,
+      classLocation
     } = req.body;
 
-    if (!cohort || !level || !startDate || !batchType) {
-      return sendResponse(res, 400, false, "Missing required fields.");
+    if (!batchName || !startDate || !batchType) {
+      return sendResponse(res, 400, false, "batchName, startDate, batchType are required.");
     }
 
     const batchTypeClean = String(batchType).toUpperCase().trim();
-    let finalCityCode = "", finalLocation = "Online";
-
-    // Online/Offline Validation
-    if (batchTypeClean === 'OFFLINE') {
-      if (!citycode || !classLocation) {
-        return sendResponse(res, 400, false, "OFFLINE batches require citycode and classLocation.");
-      }
-      finalCityCode = citycode;
-      finalLocation = classLocation;
+    if (!["ONLINE", "OFFLINE"].includes(batchTypeClean)) {
+      return sendResponse(res, 400, false, "Invalid batchType.");
     }
 
-    // Generate Codes
-    const cohortLower = String(cohort).toLowerCase().trim();
-    const levelLower = String(level).toLowerCase().trim();
-    const typeInput = String(type).toLowerCase().trim();
+    // OFFLINE validation
+    if (batchTypeClean === "OFFLINE") {
+      if (!citycode || !classLocation) {
+        return sendResponse(
+          res,
+          400,
+          false,
+          "OFFLINE batches require citycode and classLocation."
+        );
+      }
+    }
 
-    let cohortCode = "";
-    if (cohortLower === "spark") cohortCode = "SP";
-    else if (cohortLower === "blaze") cohortCode = "BZ";
-    else if (cohortLower === "ignite") cohortCode = "IG";
-    else if (cohortLower === "inferno") cohortCode = "IN";
-    else return sendResponse(res, 400, false, "Invalid cohort.");
+    // 🔥 Generate SPARK001 / SPARK002
+    const finalBatchName = await getNextBatchName(batchName);
 
-    let levelCode = "";
-    if (levelLower === "alpha") levelCode = "A";
-    else if (levelLower === "beta") levelCode = "B";
-    else if (levelLower === "gamma") levelCode = "C";
-    else return sendResponse(res, 400, false, "Invalid level.");
-
-    let typeChar = "";
-    if (['s', 'c', 'i'].includes(typeInput)) typeChar = typeInput.toUpperCase();
-    else if (typeInput === "society") typeChar = "C";
-    else if (typeInput === "school") typeChar = "S";
-    else if (typeInput === "individual") typeChar = "I";
-    else if (batchTypeClean === "OFFLINE") 
-      return sendResponse(res, 400, false, "Invalid type.");
-
-    const batchId = await getNextBatchId(cohortCode, levelCode);
-
-    // Build payload depending on ONLINE or OFFLINE
-    let batchPayload = {
-      batchId,
-      cohort: cohortLower,
-      level: levelLower,
+    // Build payload
+    const batchPayload = {
+      batchName: finalBatchName,
+      level: level || "",
       startDate: new Date(startDate),
       batchType: batchTypeClean,
       description: description || ""
     };
 
     if (batchTypeClean === "OFFLINE") {
-      batchPayload.type = typeChar;
-      batchPayload.classLocation = finalLocation;
-      batchPayload.cityCode = finalCityCode;
-    } else {
-      // ONLINE — Ignore these fields
-      batchPayload.type = undefined;
-      batchPayload.classLocation = "Online";
-      batchPayload.cityCode = "";
+      batchPayload.cityCode = citycode;
+      batchPayload.classLocation = classLocation;
     }
 
     const newBatch = await Batch.create(batchPayload);
 
-    // Create Status
+    // Create initial status
     const batchStatus = await BatchStatus.create({
       batch_obj_id: newBatch._id,
-      batchId: newBatch.batchId,
+      batchName: newBatch.batchName,
       status: "UPCOMING"
     });
 
-    return sendResponse(res, 201, true, "Batch created.", { 
-      ...newBatch.toObject(), 
-      status: batchStatus.status 
-    });
+  return sendResponse(res, 201, true, "Batch created successfully.", {
+  batch_obj_id: newBatch._id,
+  batchName: newBatch.batchName,
+  level: newBatch.level,
+  startDate: newBatch.startDate,
+  batchType: newBatch.batchType,
+  description: newBatch.description,
+  classLocation:
+    newBatch.batchType === "OFFLINE" ? newBatch.classLocation : undefined,
+  cityCode:
+    newBatch.batchType === "OFFLINE" ? newBatch.cityCode : undefined,
+  status: batchStatus.status
+});
+
 
   } catch (err) {
-    console.error("createBatchForAdmin err", err);
+    console.error("createBatchForAdmin error:", err);
     return sendResponse(res, 500, false, "Server error.");
   }
 };
 
 
+
 /**
  * Controller: linkStudentToBatchForAdmin
- * Input: { batchId (string), student_number (string) }
+ * Input: { batch object Id , student_number (string) }
  * Output: Created Relation object
  */
+
 export const linkStudentToBatchForAdmin = async (req, res) => {
   try {
-    const { batchId, student_number } = req.body;
-    if (!batchId || !student_number) return sendResponse(res, 400, false, "Fields required.");
+    const { batch_obj_id, student_number } = req.body;
 
-    const batchIdClean = String(batchId).toUpperCase().trim();
+    if (!batch_obj_id || !student_number)
+      return sendResponse(res, 400, false, "Fields required.");
+
     const studentNumberClean = String(student_number).toUpperCase().trim();
 
-    const batch = await Batch.findOne({ batchId: batchIdClean });
+    const batch = await Batch.findById(batch_obj_id);
     if (!batch) return sendResponse(res, 404, false, "Batch not found.");
 
     const student = await Student.findOne({ student_number: studentNumberClean });
     if (!student) return sendResponse(res, 404, false, "Student not found.");
 
-    const exists = await BatchStudentRelation.exists({ batch_obj_id: batch._id, student_obj_id: student._id });
-    if (exists) return sendResponse(res, 409, false, "Student already in batch.");
+    const exists = await BatchStudentRelation.exists({
+      batch_obj_id: batch._id,
+      student_obj_id: student._id
+    });
+
+    if (exists)
+      return sendResponse(res, 409, false, "Student already in batch.");
 
     const newLink = await BatchStudentRelation.create({
       batch_obj_id: batch._id,
-      batchId: batchIdClean,
       student_obj_id: student._id,
       student_number: studentNumberClean
     });
@@ -159,21 +158,28 @@ export const linkStudentToBatchForAdmin = async (req, res) => {
   }
 };
 
+
+
+
 /**
  * Controller: updateBatchStatusForAdmin
- * Input: { batchId, status (UPCOMING/LIVE/ENDED) }
+ * Input: { batch obj id , status (UPCOMING/LIVE/ENDED) }
  * Output: Updated Status document
  */
 export const updateBatchStatusForAdmin = async (req, res) => {
   try {
-    const { batchId, status } = req.body;
-    if (!batchId || !status) return sendResponse(res, 400, false, "Fields required.");
+    const { batch_obj_id, status } = req.body;
+
+    if (!batch_obj_id || !status)
+      return sendResponse(res, 400, false, "Fields required.");
 
     const statusClean = String(status).toUpperCase().trim();
-    if (!["UPCOMING", "LIVE", "ENDED"].includes(statusClean)) return sendResponse(res, 400, false, "Invalid status.");
+    if (!["UPCOMING", "LIVE", "ENDED"].includes(statusClean))
+      return sendResponse(res, 400, false, "Invalid status.");
 
-    const statusDoc = await BatchStatus.findOne({ batchId: String(batchId).toUpperCase().trim() });
-    if (!statusDoc) return sendResponse(res, 404, false, "Batch status not found.");
+    const statusDoc = await BatchStatus.findOne({ batch_obj_id });
+    if (!statusDoc)
+      return sendResponse(res, 404, false, "Batch status not found.");
 
     statusDoc.status = statusClean;
     statusDoc.lastUpdated = new Date();
@@ -185,55 +191,82 @@ export const updateBatchStatusForAdmin = async (req, res) => {
   }
 };
 
+
 /**
  * Controller: createSessionInsideABatchForAdmin
- * Input: { batchId, session_number, title, date, startTime, endTime, meetingLinkOrLocation }
+ * Input: { batch obj id , session_number, title, date, startTime, endTime, meetingLinkOrLocation }
  * Output: Created Session object
  */
 export const createSessionInsideABatchForAdmin = async (req, res) => {
   try {
-    const { 
-      batchId, 
-      session_number, 
-      title, 
-      description, 
-      date, 
-      startTime, 
-      endTime, 
-      meetingLinkOrLocation 
+    const {
+      batch_obj_id,
+      session_number,
+      title,
+      description,
+      date,
+      startTime,
+      endTime,
+      meetingLinkOrLocation,
+      googleClassroomLink // ✅ NEW (optional)
     } = req.body;
-    
-    // 1. Removed meetingLinkOrLocation from required checks
-    if (!batchId || !session_number || !title || !date || !startTime || !endTime) {
-      return sendResponse(res, 400, false, "Missing required session fields (batchId, session_number, title, date, times).");
+
+
+
+    // console.log(googleClassroomLink)
+
+    if (!batch_obj_id || !session_number || !title || !date || !startTime || !endTime) {
+      return sendResponse(res, 400, false, "Missing required fields.");
     }
 
-    const batch = await Batch.findOne({ batchId: String(batchId).toUpperCase().trim() });
+    const batch = await Batch.findById(batch_obj_id);
     if (!batch) return sendResponse(res, 404, false, "Batch not found.");
 
-    const exists = await BatchSession.exists({ batch_obj_id: batch._id, session_number: Number(session_number) });
-    if (exists) return sendResponse(res, 409, false, "Session number already exists for this batch.");
+    const exists = await BatchSession.exists({
+      batch_obj_id,
+      session_number: Number(session_number)
+    });
 
-    // 2. Create session (meetingLinkOrLocation is optional now)
+    if (exists)
+      return sendResponse(
+        res,
+        409,
+        false,
+        "Session Number already exists. Please change session number."
+      );
+
+    // 🚫 Safety: classroom link only for ONLINE
+    if (googleClassroomLink && batch.batchType !== "ONLINE") {
+      return sendResponse(
+        res,
+        400,
+        false,
+        "Google Classroom link is allowed only for ONLINE batches."
+      );
+    }
+
     const newSession = await BatchSession.create({
-      batch_obj_id: batch._id,
-      batchId: batch.batchId,
+      batch_obj_id,
       session_number: Number(session_number),
       title,
       description: description || "",
       date: new Date(date),
       startTime,
       endTime,
-      sessionType: batch.batchType , // Fallback if batchType missing
-      meetingLinkOrLocation: meetingLinkOrLocation || null // Save null if empty
+      sessionType: batch.batchType,
+      meetingLinkOrLocation: meetingLinkOrLocation || null,
+      googleClassroomLink: googleClassroomLink || null // ✅ SAVED
     });
 
-    return sendResponse(res, 201, true, "Session created successfully.", newSession);
+    return sendResponse(res, 201, true, "Session created.", newSession);
+
   } catch (err) {
-    console.error("createSession error:", err);
-    return sendResponse(res, 500, false, "Server error creating session.");
+    console.error("createSessionInsideABatchForAdmin error:", err);
+    return sendResponse(res, 500, false, "Server error.");
   }
 };
+
+
 
 
 
@@ -245,38 +278,45 @@ export const createSessionInsideABatchForAdmin = async (req, res) => {
  */
 export const updateSessionDetailsForAdmin = async (req, res) => {
   try {
-    const { 
-      session_obj_id, // <--- Direct ID lookup
-      title, 
-      description, 
-      date, 
-      startTime, 
-      endTime, 
-      meetingLinkOrLocation 
+    const {
+      session_obj_id,
+      title,
+      description,
+      date,
+      startTime,
+      endTime,
+      meetingLinkOrLocation,
+      googleClassroomLink // ✅ NEW
     } = req.body;
 
-    // 1. Validate ID is present
     if (!session_obj_id) {
       return sendResponse(res, 400, false, "session_obj_id is required.");
     }
 
-    // 2. Find the Session directly using the ID
     const session = await BatchSession.findById(session_obj_id);
-
     if (!session) {
       return sendResponse(res, 404, false, "Session not found.");
     }
 
-    // 3. Update fields if they are provided in the body
     if (title !== undefined) session.title = title;
     if (description !== undefined) session.description = description;
     if (date !== undefined) session.date = new Date(date);
     if (startTime !== undefined) session.startTime = startTime;
     if (endTime !== undefined) session.endTime = endTime;
-    
-    // Allow updating link to empty/null if passed explicitly, or new value
-    if (meetingLinkOrLocation !== undefined) {
+    if (meetingLinkOrLocation !== undefined)
       session.meetingLinkOrLocation = meetingLinkOrLocation;
+
+    // 🚫 Safety check
+    if (googleClassroomLink !== undefined) {
+      if (googleClassroomLink && session.sessionType !== "ONLINE") {
+        return sendResponse(
+          res,
+          400,
+          false,
+          "Google Classroom link allowed only for ONLINE sessions."
+        );
+      }
+      session.googleClassroomLink = googleClassroomLink;
     }
 
     await session.save();
@@ -284,7 +324,7 @@ export const updateSessionDetailsForAdmin = async (req, res) => {
     return sendResponse(res, 200, true, "Session updated successfully.", session);
 
   } catch (err) {
-    console.error("updateSession error:", err);
+    console.error("updateSessionDetailsForAdmin error:", err);
     return sendResponse(res, 500, false, "Server error updating session.");
   }
 };
@@ -308,11 +348,19 @@ export const listAllActiveBatchesForAdmin = async (req, res) => {
     const statusMap = new Map();
     activeStatuses.forEach(s => statusMap.set(s.batch_obj_id.toString(), s.status));
 
-    const result = batches.map(b => ({
-      ...b,
-      status: statusMap.get(b._id.toString()),
-      isLive: statusMap.get(b._id.toString()) === "LIVE"
-    }));
+  const result = batches.map(b => ({
+  batch_obj_id: b._id,
+  batchName: b.batchName,
+  level: b.level,
+  startDate: b.startDate,
+  batchType: b.batchType,
+  description: b.description,
+  classLocation: b.batchType === "OFFLINE" ? b.classLocation : undefined,
+  cityCode: b.batchType === "OFFLINE" ? b.cityCode : undefined,
+  status: statusMap.get(b._id.toString()),
+  isLive: statusMap.get(b._id.toString()) === "LIVE"
+}));
+
 
     return sendResponse(res, 200, true, "Active batches retrieved.", result);
   } catch (err) {
@@ -328,11 +376,64 @@ export const listAllActiveBatchesForAdmin = async (req, res) => {
 export const getSessionForABatchForAdmin = async (req, res) => {
   try {
     const { batch_obj_id } = req.query;
-    if (!batch_obj_id) return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    const sessions = await BatchSession.find({ batch_obj_id }).sort({ session_number: 1 }).lean();
-    return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
+    if (!batch_obj_id) {
+      return sendResponse(res, 400, false, "batch_obj_id required.");
+    }
+
+    // 1️⃣ Fetch Batch details
+    const batch = await Batch.findById(batch_obj_id)
+      .select("batchName level startDate batchType classLocation cityCode")
+      .lean();
+
+    if (!batch) {
+      return sendResponse(res, 404, false, "Batch not found.");
+    }
+
+    // 2️⃣ Fetch Sessions
+    const sessions = await BatchSession.find({ batch_obj_id })
+      .sort({ session_number: 1 })
+      .lean();
+
+
+      // console.log(sessions.googleClassroomLink)
+
+    // 3️⃣ Build response
+  const responseData = {
+  batch: {
+    batch_obj_id: batch._id,
+    batchName: batch.batchName,
+    level: batch.level,
+    startDate: batch.startDate,
+    batchType: batch.batchType, // ONLINE / OFFLINE
+    classLocation:
+      batch.batchType === "OFFLINE" ? batch.classLocation : undefined,
+    cityCode:
+      batch.batchType === "OFFLINE" ? batch.cityCode : undefined
+  },
+
+  sessions: sessions.map(session => ({
+    ...session,
+
+    // ✅ expose classroom link only for ONLINE
+    googleClassroomLink:
+      batch.batchType === "ONLINE"
+        ? session.googleClassroomLink
+        : undefined
+  }))
+};
+
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "Batch sessions retrieved successfully.",
+      responseData
+    );
+
   } catch (err) {
+    console.error("getSessionForABatchForAdmin error:", err);
     return sendResponse(res, 500, false, "Server error.");
   }
 };
@@ -406,21 +507,20 @@ export const myLiveBatchesForStudent = async (req, res) => {
     // 4. Format the response (Hide offline fields if ONLINE)
     const formattedBatches = batches.map(batch => {
       // Fields common to both Online and Offline
-      const batchData = {
-        _id: batch._id,
-        batchId: batch.batchId,
-        cohort: batch.cohort,
-        level: batch.level,
-        startDate: batch.startDate,
-        batchType: batch.batchType, // ONLINE or OFFLINE
-        description: batch.description
-      };
+    const batchData = {
+  batch_obj_id: batch._id,
+  batchName: batch.batchName,
+  level: batch.level,
+  startDate: batch.startDate,
+  batchType: batch.batchType,
+  description: batch.description
+};
+
 
       // Only add these if the batch is OFFLINE
       if (batch.batchType === 'OFFLINE') {
         batchData.classLocation = batch.classLocation;
         batchData.cityCode = batch.cityCode;
-        batchData.type = batch.type; // 'S', 'C', 'I'
       }
 
       return batchData;
@@ -570,7 +670,7 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
       return sendResponse(res, 400, false, "batch_obj_id required.");
 
     // ---------------------------------------------------------
-    // 1. FETCH TOTAL CREDIT FOR THIS STUDENT
+    // 1. FETCH TOTAL CREDIT
     // ---------------------------------------------------------
     const creditTransactions = await StudentCredit.find({
       student_obj_id: studentId
@@ -599,7 +699,9 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
     if (!batch)
       return sendResponse(res, 404, false, "Batch not found.");
 
-    const creditThreshold = batch.batchType === "ONLINE" ? 1000 : 1500;
+    const creditThreshold =
+      batch.batchType === "ONLINE" ? 1000 : 1500;
+
     const shouldHideFields = totalCredit < creditThreshold;
 
     // ---------------------------------------------------------
@@ -616,7 +718,6 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
       date: { $gte: startOfDay, $lte: endOfDay }
     });
 
-    // Next class (future)
     const nextSession = await BatchSession.findOne({
       batch_obj_id: batch._id,
       date: { $gt: endOfDay }
@@ -627,7 +728,8 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
     // ---------------------------------------------------------
     if (!todaysSession) {
       return sendResponse(res, 200, true, "Info retrieved.", {
-        batchId: batch.batchId,
+        batch_obj_id: batch._id,
+        batchName: batch.batchName,
         batchType: batch.batchType,
         defaultLocation:
           batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
@@ -638,6 +740,7 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
               title: "No Credit",
               description: "No Credit",
               meetingLinkOrLocation: "No Credit",
+              googleClassroomLink: "No Credit"
             }
           : null,
 
@@ -658,21 +761,25 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
       sessionResponse.title = "No Credit";
       sessionResponse.description = "No Credit";
       sessionResponse.meetingLinkOrLocation = "No Credit";
+      sessionResponse.googleClassroomLink = "No Credit";
+    } else {
+      // ✅ expose classroom link ONLY for ONLINE
+      if (batch.batchType !== "ONLINE") {
+        sessionResponse.googleClassroomLink = undefined;
+      }
     }
 
     return sendResponse(res, 200, true, "Info retrieved.", {
-      batchId: batch.batchId,
+      batch_obj_id: batch._id,
+      batchName: batch.batchName,
       batchType: batch.batchType,
       defaultLocation:
         batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
       hasClassToday: true,
-
       sessionDetails: sessionResponse,
-
       nextClassDate: nextSession
         ? nextSession.date.toDateString()
         : "Not scheduled",
-
       totalCredit
     });
 
@@ -681,3 +788,4 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
     return sendResponse(res, 500, false, "Server error.");
   }
 };
+
