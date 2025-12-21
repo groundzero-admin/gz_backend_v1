@@ -1,5 +1,5 @@
 import bcrypt from "bcrypt";
-import TeacherStudentCounter from "../models/TeacherStudentCounter.js"; // Import your schema
+import TeacherStudentCounter from "../models/TeacherStudentCounter.js"; 
 import NewJoineeInvitation from "../models/NewJoineeInvitation.js";
 import CourseOrder from "../models/CourseOrder.js";
 import Student from "../models/Student.js";
@@ -7,31 +7,21 @@ import StudentParentRelation from "../models/StudentParentRelation.js";
 import StudentCredit from "../models/StudentCredit.js";
 import { sendResponse } from "../middleware/auth.js";
 
-
-
 // --- Helper: Generate Auto-Incrementing Student Number ---
-// This uses the schema you provided: { key: "student", count: 0 }
 const getNextNumber = async (key, prefix) => {
   let counter = await TeacherStudentCounter.findOne({ key });
-
-  // If this is the first student ever, create the counter entry
   if (!counter) {
     counter = new TeacherStudentCounter({ key, count: 0 });
   }
-
-  // Increment and save
   counter.count += 1;
   await counter.save();
-
-  // Format: If count is 5, result is "GZST005"
   const padded = String(counter.count).padStart(3, "0");
   return prefix + padded;
 };
 
 /**
  * Controller: completeStudentRegistration
- * Input: { token, otp, password, name, mobile , schoolName, board }
- * Logic: Verifies OTP -> Creates Student (with Auto ID) -> Links Parent -> Adds Credits
+ * Input: { token, otp, password, name, mobile, schoolName, board }
  */
 export const completeStudentRegistration = async (req, res) => {
   try {
@@ -39,8 +29,8 @@ export const completeStudentRegistration = async (req, res) => {
       token, 
       otp, 
       password,
-      // Optional: User can override these, otherwise we take from CourseOrder
-      name, mobile , schoolName, board 
+      // Optional overrides
+      name, mobile, schoolName, board 
     } = req.body;
 
     // 1. Basic Input Validation
@@ -59,28 +49,26 @@ export const completeStudentRegistration = async (req, res) => {
       return sendResponse(res, 401, false, "Incorrect OTP.");
     }
 
-    // 3. Fetch Original Order Data (we need this for credits & parent info)
+    // 3. Fetch Original Order Data
     const order = await CourseOrder.findById(invitation.course_order_id);
     if (!order) {
       return sendResponse(res, 404, false, "Original course order not found.");
     }
 
-    // 4. Check if student already exists (Edge case protection)
+    // 4. Check if student already exists
     const existingStudent = await Student.findOne({ email: invitation.studentEmail });
     if (existingStudent) {
-      // Security: delete invite so it can't be reused
       await NewJoineeInvitation.findByIdAndDelete(invitation._id);
       return sendResponse(res, 409, false, "Student account already exists.");
     }
 
-    // --- 5. Generate Student Number (e.g., GZST001) ---
+    // 5. Generate Student Number
     const student_number = await getNextNumber("student", "GZST");
 
     // 6. Hash Password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 7. Create Student 
-    // (Note: 'class' is removed as requested)
+    // 7. Create Student
     const newStudent = await Student.create({
       name: name || order.studentName,
       email: invitation.studentEmail,
@@ -90,26 +78,43 @@ export const completeStudentRegistration = async (req, res) => {
       mobile: mobile || "",
       schoolName: schoolName || order.schoolName,
       board: board || order.board,
-      class : order.classGrade , 
-      student_number: student_number // <--- Auto-incremented ID saved here
+      
+      // Ensure class is stored as a number if your schema requires it
+      class: Number(order.classGrade) || null, 
+      
+      student_number: student_number 
     });
 
-    // 8. Link Parent (Create Relation)
+    // 8. Link Parent
     await StudentParentRelation.create({
       studentEmail: newStudent.email,
       parentEmail: order.parentEmail
     });
 
-    // 9. Add Student Credits (from CourseOrder amount)
+    // --- 9. Add Student Credits (UPDATED LOGIC) ---
+    // We check the Batch Type and assign funds to the correct wallet bucket.
+    
+    let amountOnline = 0;
+    let amountOffline = 0;
+
+    if (order.batchType === 'ONLINE') {
+      amountOnline = order.amount; // Add to Online Bucket
+    } else if (order.batchType === 'OFFLINE') {
+      amountOffline = order.amount; // Add to Offline Bucket
+    }
+
     await StudentCredit.create({
       student_obj_id: newStudent._id,
       studentEmail: newStudent.email,
-      amount: order.amount,
-      source: `COURSE_ENROLLMENT - ${order.purchaseType}`,
-      course_order_id: order._id
+      
+      // New Schema Fields
+      amount_for_online: amountOnline,
+      amount_for_offline: amountOffline
+      
+      // Note: Removed 'amount', 'source', 'course_order_id' as per new schema
     });
 
-    // 10. Cleanup: Delete the used invitation
+    // 10. Cleanup
     await NewJoineeInvitation.findByIdAndDelete(invitation._id);
 
     return sendResponse(res, 201, true, "Student registration successful!", {

@@ -15,7 +15,7 @@ import { requireAdmin, requireStudent , requireTeacher,
   requireNonStudent} from "./middleware/roleCheck.js";
 
 // Controller Imports
-import { getAllStudentDetails  } from "./controllers/adminController.js";
+import { getAllStudentDetails, updateStudentCredits  } from "./controllers/adminController.js";
 // import { createInvite } from "./controllers/inviteController.js";
 import {  completeStudentRegistration } from "./controllers/onboardController.js";
 import { loginUser, logoutUser , whoAmI , checkRole } from "./controllers/authController.js";
@@ -50,8 +50,10 @@ import {
 } from "./controllers/doubtController.js";
 import { attendanceStatusPerSession, attendanceStatusPerStudent, markAttendance } from "./controllers/AttendanceController.js";
 import { stripeWebhook } from "./controllers/webhookController.js";
-import { createCheckoutSession } from "./controllers/paymentController.js";
+import { createCheckoutSession, createTopUpCheckoutSession } from "./controllers/paymentController.js";
 import { getNewJoinersList, sendCredentialsToJoiner, validateInvitationToken } from "./controllers/courseOrderController.js";
+import { remainingSessionInfoBatchForStudent } from "./controllers/RemainingSessionBuy.js";
+import CreditTopUpOrder from "./models/CreditTopUpOrder.js";
 
 // ---- Server & DB Initialization ----
 
@@ -204,6 +206,17 @@ app.post(
   sendCredentialsToJoiner
 );
 
+
+
+
+app.post(
+  "/api/admin/update-credits", 
+  requireAuthCookie, 
+  requireAdmin, 
+  updateStudentCredits
+);
+
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -352,6 +365,22 @@ app.get("/api/student/getsessionforabatch", requireAuthCookie, requireStudent, g
 // 3. Today's Batch Info (Class today? Next class?)
 app.post("/api/student/gettodaylivebatchinfo", requireAuthCookie, requireStudent, getTodayLiveBatchInfoForStudent);
 
+
+app.get(
+  "/api/student/remaining-session-info", 
+  requireAuthCookie, 
+  requireStudent, 
+  remainingSessionInfoBatchForStudent
+);
+
+
+
+app.post(
+  "/api/student/create-credit-topup-session" , 
+  requireAuthCookie , 
+  requireStudent , 
+  createTopUpCheckoutSession
+)
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 

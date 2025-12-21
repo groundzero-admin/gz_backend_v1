@@ -11,71 +11,102 @@ import Student from "../models/Student.js";
  * Input: { student_obj_id, session_obj_id, status }
  * ---------------------------------------------------
  */
+
 export const markAttendance = async (req, res) => {
   try {
     const { student_obj_id, session_obj_id, status } = req.body;
 
+    // 1. Validation
     if (!student_obj_id || !session_obj_id || !status) {
       return sendResponse(res, 400, false, "Missing required fields.");
     }
-
     if (!["PRESENT", "ABSENT"].includes(status)) {
       return sendResponse(res, 400, false, "Invalid status.");
     }
 
+    // 2. Fetch Session (To know if it's ONLINE or OFFLINE)
     const session = await BatchSession.findById(session_obj_id);
     if (!session) {
       return sendResponse(res, 404, false, "Session not found.");
     }
 
-    const amount = session.sessionType === "ONLINE" ? 1000 : 1500;
+    const isOnline = session.sessionType === "ONLINE";
+    const cost = isOnline ? 1000 : 1500;
 
+    // 3. Determine Action (Deduct vs Refund)
     const existing = await Attendance.findOne({ student_obj_id, session_obj_id });
-    const wallet = await StudentCredit.findOne({ student_obj_id });
+    let action = "NONE"; 
 
-    let action = "NONE";
-    let warning = null;
-
-    if (!existing && status === "PRESENT") action = "DEDUCT";
-    if (existing?.status === "ABSENT" && status === "PRESENT") action = "DEDUCT";
-    if (existing?.status === "PRESENT" && status === "ABSENT") action = "REFUND";
-
-    if (action !== "NONE" && wallet) {
-      if (action === "DEDUCT") {
-        if (wallet.amount < amount) {
-          wallet.amount = 0;
-          warning = "Insufficient balance. Credits reset to 0.";
-        } else {
-          wallet.amount -= amount;
-        }
-      }
-
-      if (action === "REFUND") {
-        wallet.amount += amount;
-      }
-
-      await wallet.save();
+    if (!existing) {
+      if (status === "PRESENT") action = "DEDUCT";
+    } else {
+      if (existing.status === "ABSENT" && status === "PRESENT") action = "DEDUCT";
+      else if (existing.status === "PRESENT" && status === "ABSENT") action = "REFUND";
     }
 
+    // 4. Financial Logic (Split Wallet)
+    let warning = null;
+    const wallet = await StudentCredit.findOne({ student_obj_id });
+
+    if (action !== "NONE") {
+      if (!wallet) {
+        warning = "No credit wallet found.";
+      } else {
+        // --- DEDUCT LOGIC ---
+        if (action === "DEDUCT") {
+          if (isOnline) {
+            // Check Online Balance
+            if (wallet.amount_for_online < cost) {
+              wallet.amount_for_online = 0;
+              warning = "Insufficient ONLINE balance. Reset to 0.";
+            } else {
+              wallet.amount_for_online -= cost;
+            }
+          } else {
+            // Check Offline Balance
+            if (wallet.amount_for_offline < cost) {
+              wallet.amount_for_offline = 0;
+              warning = "Insufficient OFFLINE balance. Reset to 0.";
+            } else {
+              wallet.amount_for_offline -= cost;
+            }
+          }
+        } 
+        
+        // --- REFUND LOGIC ---
+        else if (action === "REFUND") {
+          if (isOnline) {
+            wallet.amount_for_online += cost;
+          } else {
+            wallet.amount_for_offline += cost;
+          }
+        }
+
+        await wallet.save();
+      }
+    }
+
+    // 5. Update Attendance
     const record = await Attendance.findOneAndUpdate(
       { student_obj_id, session_obj_id },
       { status, markedAt: new Date() },
-      { new: true, upsert: true }
+      { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      `Attendance updated. ${action !== "NONE" ? action : ""} ${warning || ""}`,
-      record
-    );
+    // 6. Response
+    let message = `Attendance updated to ${status}.`;
+    if (action !== "NONE") message += ` (${action}ED ${cost})`;
+    if (warning) message += ` WARNING: ${warning}`;
+
+    return sendResponse(res, 200, true, message, record);
 
   } catch (err) {
     console.error("markAttendance error:", err);
     return sendResponse(res, 500, false, "Server error.");
   }
 };
+
+
 
 /**
  * ---------------------------------------------------

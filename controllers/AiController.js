@@ -8,6 +8,11 @@ import StudentParentRelation from "../models/StudentParentRelation.js";
 import StudentCredit from "../models/StudentCredit.js";
 import mongoose from "mongoose";
 
+import Parent from "../models/Parent.js";
+// import StudentParentRelation from "../models/StudentParentRelation.js";
+
+
+// import StudentCredit from "../models/StudentCredit.js";
 
 
 // --- OpenAI Client Setup ---
@@ -98,39 +103,27 @@ async function analyzeTextWithBadPromptAssistant(textToAnalyze) {
  * API 1: Setup Chat Thread (Student Only)
  * POST /api/student/setupchatthread
  */
+
+
+
 export const setupChatThread = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
 
     // ----------------------------------------
-    // 1️⃣ CHECK STUDENT CREDIT
-    // ----------------------------------------
-    const credits = await StudentCredit.aggregate([
-      { $match: { student_obj_id: new mongoose.Types.ObjectId(studentId) } },
-      { $group: { _id: null, total: { $sum: "$amount" } } }
-    ]);
-
-    const creditScore = credits.length > 0 ? credits[0].total : 0;
-
-    // If credit = 0 → BLOCK ACCESS COMPLETELY
-    if (creditScore <= 0) {
-      return sendResponse(res, 403, false, "Not enough credit to access chat.");
-    }
-
-    // ----------------------------------------
-    // 2️⃣ CHECK FOR EXISTING CHAT THREAD
+    // 1️⃣ CHECK FOR EXISTING CHAT THREAD
     // ----------------------------------------
     const existingThread = await ChatThread.findOne({ studentId: studentId });
 
     if (existingThread) {
-      console.log(`[Chat] Found existing thread: ${existingThread.thread_id}`);
+      // console.log(`[Chat] Found existing thread: ${existingThread.thread_id}`);
       return sendResponse(res, 200, true, "Existing thread found.", {
         thread_id: existingThread.thread_id,
       });
     }
 
     // ----------------------------------------
-    // 3️⃣ CREATE NEW CHAT THREAD
+    // 2️⃣ CREATE NEW CHAT THREAD (If none exists)
     // ----------------------------------------
     const newThreadId = await initializeGenericThread();
 
@@ -148,13 +141,23 @@ export const setupChatThread = async (req, res) => {
   } catch (err) {
     console.error("setupChatThread err", err);
 
+    // Handle race condition (duplicate key error) gracefully
     if (err.code === 11000) {
+      // If a thread was just created by another request, try to fetch it
+      const found = await ChatThread.findOne({ studentId: req.authPayload.id });
+      if (found) {
+        return sendResponse(res, 200, true, "Thread retrieved (concurrent creation).", {
+          thread_id: found.thread_id,
+        });
+      }
       return sendResponse(res, 409, false, "A thread for this student already exists.");
     }
 
     return sendResponse(res, 500, false, "Server error setting up chat.");
   }
 };
+
+
 
 
 
@@ -247,20 +250,75 @@ export const loadMyChat = async (req, res) => {
 export const getStudentFullHistory = async (req, res) => {
   try {
     const { studentId } = req.query;
+    
     if (!studentId) {
       return sendResponse(res, 400, false, "studentId is required in the query.");
     }
     
-    const student = await Student.findById(studentId);
+    // ---------------------------------------------
+    // 1. Fetch Student Details
+    // ---------------------------------------------
+    const student = await Student.findById(studentId).select("name email student_number mobile class");
     if (!student) {
       return sendResponse(res, 404, false, "Student not found.");
     }
 
+    // ---------------------------------------------
+    // 2. Fetch Parent Details
+    // ---------------------------------------------
+    let parentDetails = null;
+    
+    // Find the link between student email & parent email
+    const relation = await StudentParentRelation.findOne({ studentEmail: student.email });
+    
+    if (relation) {
+      // If link exists, fetch the actual Parent document
+      const parent = await Parent.findOne({ email: relation.parentEmail }).select("name email mobile");
+      if (parent) {
+        parentDetails = {
+          name: parent.name,
+          email: parent.email,
+          mobile: parent.mobile
+        };
+      }
+    }
+
+    // ---------------------------------------------
+    // 3. Fetch Student Credits
+    // ---------------------------------------------
+    const wallet = await StudentCredit.findOne({ student_obj_id: studentId })
+      .select("amount_for_online amount_for_offline");
+
+    const creditInfo = {
+      online: wallet ? wallet.amount_for_online : 0,
+      offline: wallet ? wallet.amount_for_offline : 0
+    };
+
+    // ---------------------------------------------
+    // 4. Fetch Chat History
+    // ---------------------------------------------
     const chats = await PromptHistory.find({ studentId: studentId })
-      .sort({ createdAt: 1 }) // oldest first
+      .sort({ createdAt: 1 }) 
       .select("prompt response isBadPrompt createdAt");
 
-    return sendResponse(res, 200, true, "Student history retrieved.", chats);
+    // ---------------------------------------------
+    // 5. Construct Final Response
+    // ---------------------------------------------
+    const responseData = {
+      studentDetails: {
+        name: student.name,
+        email: student.email,
+        student_number: student.student_number, // The GZ... roll number
+        class: student.class,
+        mobile: student.mobile
+      },
+      parentDetails: parentDetails || "Parent not linked",
+      credit: creditInfo,
+      chats: chats
+    };
+
+    return sendResponse(res, 200, true, "Full student history retrieved.", responseData);
+
   } catch (err) {
     console.error("getStudentFullHistory err", err);
     return sendResponse(res, 500, false, "Server error retrieving history.");

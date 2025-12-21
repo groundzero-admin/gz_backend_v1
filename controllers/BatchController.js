@@ -547,74 +547,38 @@ export const getSessionForABatchForStudent = async (req, res) => {
     const studentId = req.authPayload.id;
     const { batch_obj_id } = req.query;
 
-    if (!batch_obj_id)
+    if (!batch_obj_id) {
       return sendResponse(res, 400, false, "batch_obj_id required.");
+    }
 
-    // ---------------------------------------------------------
-    // Verify enrollment
-    // ---------------------------------------------------------
+    // 1. Verify enrollment
     const isEnrolled = await BatchStudentRelation.exists({
       student_obj_id: studentId,
       batch_obj_id
     });
-    if (!isEnrolled)
-      return sendResponse(res, 403, false, "Not enrolled.");
+    if (!isEnrolled) {
+      return sendResponse(res, 403, false, "Not enrolled in this batch.");
+    }
 
-    // ---------------------------------------------------------
-    // Get the batch
-    // ---------------------------------------------------------
+    // 2. Get the batch details (needed to check if ONLINE/OFFLINE)
     const batch = await Batch.findById(batch_obj_id).lean();
-    if (!batch)
+    if (!batch) {
       return sendResponse(res, 404, false, "Batch not found.");
+    }
 
-    // ---------------------------------------------------------
-    // CALCULATE TOTAL CREDIT
-    // ---------------------------------------------------------
-    const creditTransactions = await StudentCredit.find({
-      student_obj_id: studentId,
-    }).lean();
-
-    const totalCredit = creditTransactions.reduce(
-      (sum, c) => sum + (c.amount || 0),
-      0
-    );
-
-    const creditThreshold =
-      batch.batchType === "ONLINE" ? 1000 : 1500;
-
-    const shouldHideFields = totalCredit < creditThreshold;
-
-    // ---------------------------------------------------------
-    // Fetch sessions sorted by session number
-    // ---------------------------------------------------------
+    // 3. Fetch sessions sorted by session number
     let sessions = await BatchSession.find({ batch_obj_id })
       .sort({ session_number: 1 })
       .lean();
 
-    // ---------------------------------------------------------
-    // Hide session details based on CREDIT SCORE
-    // ---------------------------------------------------------
-    if (shouldHideFields) {
-      sessions = sessions.map((session) => ({
-        ...session,
-        title: "No Credit",
-        description: "No Credit",
-        meetingLinkOrLocation: "No Credit",
-      }));
-
-      return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
-    }
-
-    // ---------------------------------------------------------
-    // IF CREDIT IS SUFFICIENT → Apply existing ONLINE logic
-    // (Hide link until 1 hour before class)
-    // ---------------------------------------------------------
+    // 4. ONLINE BATCH LOGIC: Hide link until 1 hour before class
     if (batch.batchType === "ONLINE") {
       const now = new Date();
 
       sessions = sessions.map((session) => {
         const updated = { ...session };
 
+        // Construct Session Start Time
         const sessionStart = new Date(session.date);
         const [timeStr, modifier] = session.startTime.split(" ");
         let [hours, minutes] = timeStr.split(":").map(Number);
@@ -624,19 +588,19 @@ export const getSessionForABatchForStudent = async (req, res) => {
 
         sessionStart.setHours(hours, minutes, 0, 0);
 
-        const oneHourBefore = new Date(
-          sessionStart.getTime() - 60 * 60 * 1000
-        );
+        // Calculate 1 hour before
+        const oneHourBefore = new Date(sessionStart.getTime() - 60 * 60 * 1000);
 
+        // If current time is BEFORE the 1-hour mark, hide the link
         if (now < oneHourBefore) {
-          updated.meetingLinkOrLocation =
-            "Link will be shared soon";
+          updated.meetingLinkOrLocation = "Link will be shared soon";
         }
 
         return updated;
       });
     }
 
+    // For OFFLINE batches, we send everything as is (no restrictions)
     return sendResponse(res, 200, true, "Sessions retrieved.", sessions);
 
   } catch (err) {
@@ -669,44 +633,21 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
     if (!batch_obj_id)
       return sendResponse(res, 400, false, "batch_obj_id required.");
 
-    // ---------------------------------------------------------
-    // 1. FETCH TOTAL CREDIT
-    // ---------------------------------------------------------
-    const creditTransactions = await StudentCredit.find({
-      student_obj_id: studentId
-    }).lean();
-
-    const totalCredit = creditTransactions.reduce(
-      (sum, c) => sum + (c.amount || 0),
-      0
-    );
-
-    // ---------------------------------------------------------
-    // 2. CHECK ENROLLMENT
-    // ---------------------------------------------------------
+    // 1. CHECK ENROLLMENT
     const isEnrolled = await BatchStudentRelation.exists({
       student_obj_id: studentId,
       batch_obj_id
     });
 
     if (!isEnrolled)
-      return sendResponse(res, 403, false, "Not enrolled.");
+      return sendResponse(res, 403, false, "Not enrolled in this batch.");
 
-    // ---------------------------------------------------------
-    // 3. FETCH BATCH
-    // ---------------------------------------------------------
+    // 2. FETCH BATCH
     const batch = await Batch.findById(batch_obj_id);
     if (!batch)
       return sendResponse(res, 404, false, "Batch not found.");
 
-    const creditThreshold =
-      batch.batchType === "ONLINE" ? 1000 : 1500;
-
-    const shouldHideFields = totalCredit < creditThreshold;
-
-    // ---------------------------------------------------------
-    // 4. FIND TODAY'S SESSION
-    // ---------------------------------------------------------
+    // 3. FIND TODAY'S SESSION
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
@@ -718,69 +659,36 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
       date: { $gte: startOfDay, $lte: endOfDay }
     });
 
+    // 4. FIND NEXT SESSION (For display purposes)
     const nextSession = await BatchSession.findOne({
       batch_obj_id: batch._id,
       date: { $gt: endOfDay }
     }).sort({ date: 1 });
 
-    // ---------------------------------------------------------
+    // Prepare common response data
+    const responseData = {
+      batch_obj_id: batch._id,
+      batchName: batch.batchName || batch.cohort, // Fallback if name is missing
+      batchType: batch.batchType,
+      defaultLocation: batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
+      nextClassDate: nextSession ? nextSession.date.toDateString() : "Not scheduled",
+    };
+
     // CASE 1 — NO CLASS TODAY
-    // ---------------------------------------------------------
     if (!todaysSession) {
       return sendResponse(res, 200, true, "Info retrieved.", {
-        batch_obj_id: batch._id,
-        batchName: batch.batchName,
-        batchType: batch.batchType,
-        defaultLocation:
-          batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
+        ...responseData,
         hasClassToday: false,
-
-        sessionDetails: shouldHideFields
-          ? {
-              title: "No Credit",
-              description: "No Credit",
-              meetingLinkOrLocation: "No Credit",
-              googleClassroomLink: "No Credit"
-            }
-          : null,
-
-        nextClassDate: nextSession
-          ? nextSession.date.toDateString()
-          : "Not scheduled",
-
-        totalCredit
+        sessionDetails: null
       });
     }
 
-    // ---------------------------------------------------------
     // CASE 2 — CLASS IS TODAY
-    // ---------------------------------------------------------
-    const sessionResponse = todaysSession.toObject();
-
-    if (shouldHideFields) {
-      sessionResponse.title = "No Credit";
-      sessionResponse.description = "No Credit";
-      sessionResponse.meetingLinkOrLocation = "No Credit";
-      sessionResponse.googleClassroomLink = "No Credit";
-    } else {
-      // ✅ expose classroom link ONLY for ONLINE
-      if (batch.batchType !== "ONLINE") {
-        sessionResponse.googleClassroomLink = undefined;
-      }
-    }
-
+    // Return full details without any credit checks/restrictions
     return sendResponse(res, 200, true, "Info retrieved.", {
-      batch_obj_id: batch._id,
-      batchName: batch.batchName,
-      batchType: batch.batchType,
-      defaultLocation:
-        batch.batchType === "OFFLINE" ? batch.classLocation : "Online",
+      ...responseData,
       hasClassToday: true,
-      sessionDetails: sessionResponse,
-      nextClassDate: nextSession
-        ? nextSession.date.toDateString()
-        : "Not scheduled",
-      totalCredit
+      sessionDetails: todaysSession
     });
 
   } catch (err) {

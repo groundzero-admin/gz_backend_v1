@@ -209,7 +209,6 @@ export const whoAmI = async (req, res) => {
 
 
 
-
 export const checkRole = async (req, res) => {
   try {
     const { role: roleFromFrontend } = req.body;
@@ -222,15 +221,13 @@ export const checkRole = async (req, res) => {
     if (actualRole === roleFromFrontend) {
       let user;
 
+      // 1. Fetch User Basic Details
       if (actualRole === "admin") {
         user = await Admin.findById(userId).select("name");
-
       } else if (actualRole === "student") {
         user = await Student.findById(userId).select("name student_number email");
-
       } else if (actualRole === "teacher") {
         user = await Teacher.findById(userId).select("name teacher_number");
-
       } else if (actualRole === "parent") {
         user = await Parent.findById(userId).select("name");
       }
@@ -245,19 +242,18 @@ export const checkRole = async (req, res) => {
 
       let credit = null;
 
-      // FETCH ONLY CREDIT INFO IF USER IS STUDENT
+      // 2. FETCH CREDIT INFO (ONLY FOR STUDENTS)
       if (actualRole === "student") {
-        const studentCredits = await StudentCredit.find({
-          student_obj_id: userId,
-          studentEmail: userEmail
-        }).select("amount currency source createdAt");
+        // We use findOne because the schema now enforces 1 wallet per student
+        const studentWallet = await StudentCredit.findOne({
+          student_obj_id: userId
+        }).select("amount_for_online amount_for_offline");
 
-        // return only the essential things
-        credit = studentCredits.map(c => ({
-          amount: c.amount,
-          currency: c.currency,
-         
-        }));
+        // Prepare safe defaults if wallet doesn't exist yet
+        credit = {
+          online: studentWallet ? studentWallet.amount_for_online : 0,
+          offline: studentWallet ? studentWallet.amount_for_offline : 0
+        };
       }
 
       return sendResponse(res, 200, true, "Role verified.", {
@@ -265,7 +261,7 @@ export const checkRole = async (req, res) => {
         role: actualRole,
         email: userEmail,
         user_number,
-        credit // already simplified
+        credit // Returns { online: 12000, offline: 0 }
       });
     }
 
