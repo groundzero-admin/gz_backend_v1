@@ -58,7 +58,8 @@ export const getLiveBatchInfoTeacher = async (req, res) => {
     // ---------------- MINOR ----------------
     if (details === "minor") {
       const minorData = liveStatuses.map((s) => ({
-        batch_obj_id: s.batch_obj_id
+        batch_obj_id: s.batch_obj_id , 
+        batch_name : s.batchName
       }));
 
       return sendResponse(

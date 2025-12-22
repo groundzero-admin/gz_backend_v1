@@ -54,6 +54,9 @@ import { createCheckoutSession, createTopUpCheckoutSession } from "./controllers
 import { getNewJoinersList, sendCredentialsToJoiner, validateInvitationToken } from "./controllers/courseOrderController.js";
 import { remainingSessionInfoBatchForStudent } from "./controllers/RemainingSessionBuy.js";
 import CreditTopUpOrder from "./models/CreditTopUpOrder.js";
+import { inviteTeacher, onboardTeacher, validateTeacherInvite } from "./controllers/teacherOnboardingController.js";
+import { inviteParent, onboardParent, validateParentInvite } from "./controllers/parentOnboardController.js";
+import { inviteStudentAndParent, onboardDirectStudent, validateDirectStudentInvite } from "./controllers/studentdirectInvitation.js";
 
 // ---- Server & DB Initialization ----
 
@@ -482,6 +485,95 @@ app.post(
 
 
 
+
+
+
+// --- Teacher Onboarding Routes ---
+
+// 1. Admin sends the invite
+app.post(
+  "/api/admin/invite-teacher", 
+  requireAuthCookie, 
+  requireAdmin, 
+  inviteTeacher
+);
+
+// 2. Validate Link (Public - called when page loads)
+app.get(
+  "/api/validate-teacher-invite", 
+  validateTeacherInvite
+);
+
+// 3. Complete Registration (Public - called on form submit)
+app.post(
+  "/api/complete-teacher-onboarding", 
+  onboardTeacher
+);
+
+
+
+
+
+
+
+
+///////////////////// new parent invite controller 
+// 1. Admin sends invitation
+app.post(
+  "/api/admin/invite-parent", 
+  requireAuthCookie, 
+  requireAdmin, 
+  inviteParent
+);
+
+// 2. Validate Link (Public)
+app.get(
+  "/api/validate-parent-invite", 
+  validateParentInvite
+);
+
+// 3. Complete Registration (Public)
+app.post(
+  "/api/complete-parent-onboarding", 
+  onboardParent
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////// direct studnt invite payment 
+
+// 1. Admin sends the Combo Invite
+app.post(
+  "/api/admin/invite-student-direct", 
+  requireAuthCookie, 
+  requireAdmin, 
+  inviteStudentAndParent
+);
+
+// 2. Student validates their Direct Link
+app.get(
+  "/api/validate-direct-student-invite", 
+  validateDirectStudentInvite
+);
+
+// 3. Student completes registration
+app.post(
+  "/api/complete-direct-student-onboarding", 
+  onboardDirectStudent
+);
 
 
 

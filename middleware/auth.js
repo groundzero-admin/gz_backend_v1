@@ -28,6 +28,10 @@ export const verifyTokenSafe = (token) => {
 // verifies cookie token; sets req.authPayload
 
 var count =0 ; 
+
+
+
+
 export const requireAuthCookie = (req, res, next) => {
   console.log(count++) 
   try {

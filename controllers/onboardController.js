@@ -6,6 +6,11 @@ import Student from "../models/Student.js";
 import StudentParentRelation from "../models/StudentParentRelation.js";
 import StudentCredit from "../models/StudentCredit.js";
 import { sendResponse } from "../middleware/auth.js";
+import crypto from "crypto";
+import BatchStudentRelation from "../models/BatchStudentRelation.js";
+
+
+
 
 // --- Helper: Generate Auto-Incrementing Student Number ---
 const getNextNumber = async (key, prefix) => {
@@ -19,105 +24,108 @@ const getNextNumber = async (key, prefix) => {
   return prefix + padded;
 };
 
+
+
 /**
  * Controller: completeStudentRegistration
  * Input: { token, otp, password, name, mobile, schoolName, board }
  */
+
+
 export const completeStudentRegistration = async (req, res) => {
   try {
-    const { 
-      token, 
-      otp, 
-      password,
-      // Optional overrides
-      name, mobile, schoolName, board 
-    } = req.body;
+    const { token, otp, password, name, mobile, schoolName, board } = req.body;
 
-    // 1. Basic Input Validation
     if (!token || !otp || !password) {
       return sendResponse(res, 400, false, "Token, OTP, and Password are required.");
     }
 
-    // 2. Verify Invitation & OTP
+    // 1. Verify Invitation
     const invitation = await NewJoineeInvitation.findOne({ magicLinkToken: token });
-    
-    if (!invitation) {
-      return sendResponse(res, 404, false, "Invalid or expired invitation link.");
-    }
+    if (!invitation) return sendResponse(res, 404, false, "Invalid or expired invitation.");
+    if (String(invitation.otp) !== String(otp)) return sendResponse(res, 401, false, "Incorrect OTP.");
 
-    if (String(invitation.otp) !== String(otp)) {
-      return sendResponse(res, 401, false, "Incorrect OTP.");
-    }
-
-    // 3. Fetch Original Order Data
+    // 2. Check Order & Exists
     const order = await CourseOrder.findById(invitation.course_order_id);
-    if (!order) {
-      return sendResponse(res, 404, false, "Original course order not found.");
-    }
+    if (!order) return sendResponse(res, 404, false, "Original order not found.");
 
-    // 4. Check if student already exists
     const existingStudent = await Student.findOne({ email: invitation.studentEmail });
     if (existingStudent) {
       await NewJoineeInvitation.findByIdAndDelete(invitation._id);
       return sendResponse(res, 409, false, "Student account already exists.");
     }
 
-    // 5. Generate Student Number
+    // 3. Create Student
     const student_number = await getNextNumber("student", "GZST");
-
-    // 6. Hash Password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 7. Create Student
     const newStudent = await Student.create({
       name: name || order.studentName,
       email: invitation.studentEmail,
       password: hashedPassword,
       role: "student",
-      
       mobile: mobile || "",
       schoolName: schoolName || order.schoolName,
       board: board || order.board,
-      
-      // Ensure class is stored as a number if your schema requires it
       class: Number(order.classGrade) || null, 
-      
       student_number: student_number 
     });
 
-    // 8. Link Parent
+    // 4. Link Parent
     await StudentParentRelation.create({
       studentEmail: newStudent.email,
       parentEmail: order.parentEmail
     });
 
-    // --- 9. Add Student Credits (UPDATED LOGIC) ---
-    // We check the Batch Type and assign funds to the correct wallet bucket.
-    
+    // 5. Add Credits (Wallet)
     let amountOnline = 0;
     let amountOffline = 0;
-
-    if (order.batchType === 'ONLINE') {
-      amountOnline = order.amount; // Add to Online Bucket
-    } else if (order.batchType === 'OFFLINE') {
-      amountOffline = order.amount; // Add to Offline Bucket
-    }
+    if (order.batchType === 'ONLINE') amountOnline = order.amount;
+    else if (order.batchType === 'OFFLINE') amountOffline = order.amount;
 
     await StudentCredit.create({
       student_obj_id: newStudent._id,
       studentEmail: newStudent.email,
-      
-      // New Schema Fields
       amount_for_online: amountOnline,
       amount_for_offline: amountOffline
-      
-      // Note: Removed 'amount', 'source', 'course_order_id' as per new schema
     });
 
-    // 10. Cleanup
+    // ============================================================
+    // 6. AUTO-ENROLLMENT IN BATCHES (NEW LOGIC)
+    // ============================================================
+    
+    // Check if there are batches stored in the invitation
+    if (invitation.enroll_batches && invitation.enroll_batches.length > 0) {
+      console.log(`[Auto-Enroll] Enrolling ${student_number} in ${invitation.enroll_batches.length} batches...`);
+      
+      const enrollPromises = invitation.enroll_batches.map(async (batch) => {
+        try {
+          // Use findOneAndUpdate with upsert to prevent duplicate key errors safely
+          await BatchStudentRelation.findOneAndUpdate(
+            { 
+              batch_obj_id: batch.batch_obj_id, 
+              student_obj_id: newStudent._id 
+            },
+            { 
+              student_number: newStudent.student_number,
+              joinedAt: new Date()
+            },
+            { upsert: true, new: true }
+          );
+        } catch (enrollError) {
+          console.error(`Failed to enroll in batch ${batch.batchName}:`, enrollError);
+          // Continue loop even if one fails
+        }
+      });
+
+      await Promise.all(enrollPromises);
+    }
+    // ============================================================
+
+    // 7. Cleanup
     await NewJoineeInvitation.findByIdAndDelete(invitation._id);
 
-    return sendResponse(res, 201, true, "Student registration successful!", {
+    return sendResponse(res, 201, true, "Student registration and batch enrollment successful!", {
       studentId: newStudent._id,
       student_number: student_number
     });

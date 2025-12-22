@@ -5,15 +5,21 @@ const newJoineeInvitationSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId, 
     ref: "CourseOrder", 
     required: true,
-    unique: true // One active invitation per order
+    unique: true 
   },
   studentEmail: { type: String, required: true },
   
+  // --- NEW: Store Batches to Enroll ---
+  enroll_batches: [
+    {
+      batch_obj_id: { type: mongoose.Schema.Types.ObjectId, ref: "Batch" },
+      batchName: String
+    }
+  ],
+
   // Security Tokens
-  magicLinkToken: { type: String, required: true }, // UUID for the URL
-  otp: { type: String, required: true }, // 6-digit code
-  
-  // REMOVED: expiresAt field
+  magicLinkToken: { type: String, required: true }, 
+  otp: { type: String, required: true }, 
   
   createdAt: { type: Date, default: Date.now }
 });
