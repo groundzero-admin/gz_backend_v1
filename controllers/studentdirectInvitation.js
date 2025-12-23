@@ -25,10 +25,12 @@ const getNextStudentNumber = async () => {
 
 
 
+
 /**
  * 1. ADMIN: Invite Student AND Parent together
  * Input: { studentEmail, parentEmail, onlineCredit, offlineCredit , batch obj id andbatchanmes  }
- */export const inviteStudentAndParent = async (req, res) => {
+ */
+export const inviteStudentAndParent = async (req, res) => {
   try {
     const { 
       studentEmail, 
@@ -50,17 +52,14 @@ const getNextStudentNumber = async () => {
     const studentToken = crypto.randomUUID();
     const studentOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Upsert Student Invitation (Save Batches here)
+    // Upsert Student Invitation
     await StudentDirectInvitation.findOneAndUpdate(
       { studentEmail },
       {
         parentEmail,
         amount_for_online: Number(onlineCredit) || 0,
         amount_for_offline: Number(offlineCredit) || 0,
-        
-        // --- NEW: Save Batches ---
         enroll_batches: batches || [],
-        
         magicLinkToken: studentToken,
         otp: studentOtp,
         createdAt: new Date()
@@ -86,7 +85,7 @@ const getNextStudentNumber = async () => {
     const studentLink = `${process.env.FRONTEND_BASE}/student-signup-direct?token=${studentToken}`;
     const parentLink = `${process.env.FRONTEND_BASE}/parent-signup?token=${parentToken}`;
 
-    // 1. Send to STUDENT
+    // 1. Send Email to STUDENT (Only their own details)
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: studentEmail,
@@ -94,28 +93,28 @@ const getNextStudentNumber = async () => {
       html: `<p>You have been invited. OTP: <strong>${studentOtp}</strong>. <a href="${studentLink}">Click here to register</a>`
     });
 
-    // 2. Send Copy to PARENT
+    // 2. Send Email to PARENT (Contains BOTH Student and Parent details)
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: parentEmail,
-      subject: `Student Registration Details for ${studentEmail}`,
+      subject: `Action Required: Registration for you and ${studentEmail}`,
       html: `
-        <p>Hello,</p>
-        <p>We have invited your child (<strong>${studentEmail}</strong>) to join.</p>
+        <h2>Welcome!</h2>
+        <p>Please complete the registration for both yourself and your child.</p>
+        
+        <hr />
+        
+        <h3>1. Student Registration (For ${studentEmail})</h3>
+        <p>Use these details to register the student account:</p>
         <p><strong>Student OTP:</strong> ${studentOtp}</p>
         <p><strong>Student Link:</strong> <a href="${studentLink}">${studentLink}</a></p>
-      `
-    });
-
-    // 3. Send Parent Invite
-    await resend.emails.send({
-      from: process.env.SMTP_USER,
-      to: parentEmail,
-      subject: "Invitation to Parent Portal",
-      html: `
-        <p>Please register as a parent for ${studentEmail}.</p>
-        <p><strong>Your Parent OTP:</strong> ${parentOtp}</p>
-        <p><strong>Parent Link:</strong> <a href="${parentLink}">Click here to register</a></p>
+        
+        <hr />
+        
+        <h3>2. Parent Registration (For You)</h3>
+        <p>Use these details to create your parent portal account:</p>
+        <p><strong>Parent OTP:</strong> ${parentOtp}</p>
+        <p><strong>Parent Link:</strong> <a href="${parentLink}">${parentLink}</a></p>
       `
     });
 
@@ -129,6 +128,7 @@ const getNextStudentNumber = async () => {
     return sendResponse(res, 500, false, "Server error sending invites.");
   }
 };
+
 
 /**
  * 2. PUBLIC: Validate Direct Student Invite
