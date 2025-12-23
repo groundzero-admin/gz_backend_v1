@@ -8,7 +8,7 @@ import TeacherStudentCounter from "../models/TeacherStudentCounter.js";
 import StudentDirectInvitation from "../models/StudentDirectInvitation.js"; // New Model
 import ParentInvitation from "../models/ParentInvitation.js"; // Existing Model
 import { sendResponse } from "../middleware/auth.js";
-
+import BatchStudentRelation from "../models/BatchStudentRelation.js";
 const resend = new Resend(process.env.RESEND_EMAIL_API_KEY);
 
 // --- Helper: Student Roll Number ---
@@ -27,11 +27,16 @@ const getNextStudentNumber = async () => {
 
 /**
  * 1. ADMIN: Invite Student AND Parent together
- * Input: { studentEmail, parentEmail, onlineCredit, offlineCredit }
- */
-export const inviteStudentAndParent = async (req, res) => {
+ * Input: { studentEmail, parentEmail, onlineCredit, offlineCredit , batch obj id andbatchanmes  }
+ */export const inviteStudentAndParent = async (req, res) => {
   try {
-    const { studentEmail, parentEmail, onlineCredit, offlineCredit } = req.body;
+    const { 
+      studentEmail, 
+      parentEmail, 
+      onlineCredit, 
+      offlineCredit,
+      batches // Expecting: [{ batch_obj_id: "...", batchName: "..." }]
+    } = req.body;
 
     if (!studentEmail || !parentEmail) {
       return sendResponse(res, 400, false, "Both Student and Parent emails are required.");
@@ -45,13 +50,17 @@ export const inviteStudentAndParent = async (req, res) => {
     const studentToken = crypto.randomUUID();
     const studentOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Upsert Student Invitation (Replace old if exists)
+    // Upsert Student Invitation (Save Batches here)
     await StudentDirectInvitation.findOneAndUpdate(
       { studentEmail },
       {
         parentEmail,
         amount_for_online: Number(onlineCredit) || 0,
         amount_for_offline: Number(offlineCredit) || 0,
+        
+        // --- NEW: Save Batches ---
+        enroll_batches: batches || [],
+        
         magicLinkToken: studentToken,
         otp: studentOtp,
         createdAt: new Date()
@@ -64,7 +73,7 @@ export const inviteStudentAndParent = async (req, res) => {
     const parentOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
     await ParentInvitation.findOneAndUpdate(
-      { parentEmail, studentEmail }, // Unique per pair
+      { parentEmail, studentEmail }, 
       {
         magicLinkToken: parentToken,
         otp: parentOtp,
@@ -77,7 +86,7 @@ export const inviteStudentAndParent = async (req, res) => {
     const studentLink = `${process.env.FRONTEND_BASE}/student-signup-direct?token=${studentToken}`;
     const parentLink = `${process.env.FRONTEND_BASE}/parent-signup?token=${parentToken}`;
 
-    // 1. Send Student Invite -> To STUDENT
+    // 1. Send to STUDENT
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: studentEmail,
@@ -85,7 +94,7 @@ export const inviteStudentAndParent = async (req, res) => {
       html: `<p>You have been invited. OTP: <strong>${studentOtp}</strong>. <a href="${studentLink}">Click here to register</a>`
     });
 
-    // 2. Send Student Invite Copy -> To PARENT (New Requirement)
+    // 2. Send Copy to PARENT
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: parentEmail,
@@ -93,13 +102,12 @@ export const inviteStudentAndParent = async (req, res) => {
       html: `
         <p>Hello,</p>
         <p>We have invited your child (<strong>${studentEmail}</strong>) to join.</p>
-        <p>Here are their registration details in case they need help:</p>
         <p><strong>Student OTP:</strong> ${studentOtp}</p>
         <p><strong>Student Link:</strong> <a href="${studentLink}">${studentLink}</a></p>
       `
     });
 
-    // 3. Send Parent Invite -> To PARENT ONLY
+    // 3. Send Parent Invite
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: parentEmail,
@@ -111,9 +119,6 @@ export const inviteStudentAndParent = async (req, res) => {
       `
     });
 
-    console.log("Student Link:", studentLink, "OTP:", studentOtp);
-    console.log("Parent Link:", parentLink, "OTP:", parentOtp);
-
     return sendResponse(res, 200, true, "Invites sent successfully.", {
       debug_student_otp: studentOtp,
       debug_parent_otp: parentOtp
@@ -124,10 +129,6 @@ export const inviteStudentAndParent = async (req, res) => {
     return sendResponse(res, 500, false, "Server error sending invites.");
   }
 };
-
-
-
-
 
 /**
  * 2. PUBLIC: Validate Direct Student Invite
@@ -152,10 +153,15 @@ export const validateDirectStudentInvite = async (req, res) => {
   }
 };
 
+
+
 /**
  * 3. PUBLIC: Onboard Direct Student
  * Input: { token, otp, password, name, mobile, class }
  */
+
+
+
 export const onboardDirectStudent = async (req, res) => {
   try {
     const { 
@@ -194,7 +200,7 @@ export const onboardDirectStudent = async (req, res) => {
       role: "student"
     });
 
-    // 5. Create Wallet (Using Admin-assigned credits)
+    // 5. Create Wallet
     await StudentCredit.create({
       student_obj_id: newStudent._id,
       studentEmail: newStudent.email,
@@ -203,16 +209,59 @@ export const onboardDirectStudent = async (req, res) => {
     });
 
     // 6. Create Parent Relation
-    // Link to the parent email stored in the invite
     await StudentParentRelation.create({
       studentEmail: newStudent.email,
       parentEmail: invite.parentEmail
     });
 
-    // 7. Cleanup
+    // ============================================================
+    // 7. AUTO-ENROLLMENT IN BATCHES (SEQUENTIAL FIX)
+    // ============================================================
+    
+    // Check if batches exist in the invite
+    if (invite.enroll_batches && invite.enroll_batches.length > 0) {
+      console.log(`[Auto-Enroll] Found ${invite.enroll_batches.length} batches. Starting sequential enrollment...`);
+      
+      // We use a for...of loop to ensure operations happen one by one.
+      // This prevents race conditions or "missing" the second item.
+      for (const batch of invite.enroll_batches) {
+        try {
+            // Safety Check: Ensure the batch object has an ID
+            if (!batch.batch_obj_id) {
+                console.warn(`[Auto-Enroll] Skipping invalid batch entry (no ID):`, batch);
+                continue; 
+            }
+
+            console.log(`[Auto-Enroll] processing batch: ${batch.batchName} (${batch.batch_obj_id})`);
+
+            await BatchStudentRelation.findOneAndUpdate(
+                { 
+                  batch_obj_id: batch.batch_obj_id, 
+                  student_obj_id: newStudent._id 
+                },
+                { 
+                  student_number: newStudent.student_number,
+                  joinedAt: new Date()
+                },
+                { upsert: true, new: true }
+            );
+            
+            console.log(`[Auto-Enroll] Success: Enrolled in ${batch.batchName}`);
+
+        } catch (enrollError) {
+            // Log the error but CONTINUE the loop so other batches still get added
+            console.error(`[Auto-Enroll] Failed to enroll in batch ${batch.batchName}:`, enrollError);
+        }
+      }
+    } else {
+        console.log("[Auto-Enroll] No batches found in invitation to enroll.");
+    }
+    // ============================================================
+
+    // 8. Cleanup
     await StudentDirectInvitation.findByIdAndDelete(invite._id);
 
-    return sendResponse(res, 201, true, "Student onboarding successful!", {
+    return sendResponse(res, 201, true, "Student onboarding and batch enrollment successful!", {
       studentId: newStudent._id,
       student_number: student_number
     });
