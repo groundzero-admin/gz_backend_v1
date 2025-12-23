@@ -27,28 +27,28 @@ const getNextStudentNumber = async () => {
 
 
 /**
- * 1. ADMIN: Invite Student AND Parent together
- * Input: { studentEmail, parentEmail, onlineCredit, offlineCredit , batch obj id andbatchanmes  }
+ * 1. ADMIN: Invite Student (Parent Optional)
+ * Input: { studentEmail, parentEmail (optional), onlineCredit, offlineCredit, batches }
  */
 export const inviteStudentAndParent = async (req, res) => {
   try {
     const { 
       studentEmail, 
-      parentEmail, 
+      parentEmail, // This is now OPTIONAL
       onlineCredit, 
       offlineCredit,
-      batches // Expecting: [{ batch_obj_id: "...", batchName: "..." }]
+      batches 
     } = req.body;
 
-    if (!studentEmail || !parentEmail) {
-      return sendResponse(res, 400, false, "Both Student and Parent emails are required.");
+    // 1. VALIDATION: Only studentEmail is mandatory
+    if (!studentEmail) {
+      return sendResponse(res, 400, false, "Student email is required.");
     }
 
-    // --- A. VALIDATION ---
     const studentExists = await Student.findOne({ email: studentEmail });
     if (studentExists) return sendResponse(res, 409, false, "Student already exists.");
 
-    // --- B. PREPARE STUDENT INVITE ---
+    // --- A. PREPARE STUDENT INVITE ---
     const studentToken = crypto.randomUUID();
     const studentOtp = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -56,7 +56,7 @@ export const inviteStudentAndParent = async (req, res) => {
     await StudentDirectInvitation.findOneAndUpdate(
       { studentEmail },
       {
-        parentEmail,
+        parentEmail: parentEmail || null, // Save if exists, else null
         amount_for_online: Number(onlineCredit) || 0,
         amount_for_offline: Number(offlineCredit) || 0,
         enroll_batches: batches || [],
@@ -67,25 +67,30 @@ export const inviteStudentAndParent = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // --- C. PREPARE PARENT INVITE ---
-    const parentToken = crypto.randomUUID();
-    const parentOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    await ParentInvitation.findOneAndUpdate(
-      { parentEmail, studentEmail }, 
-      {
-        magicLinkToken: parentToken,
-        otp: parentOtp,
-        createdAt: new Date()
-      },
-      { upsert: true, new: true }
-    );
-
-    // --- D. SEND EMAILS ---
     const studentLink = `${process.env.FRONTEND_BASE}/student-signup-direct?token=${studentToken}`;
-    const parentLink = `${process.env.FRONTEND_BASE}/parent-signup?token=${parentToken}`;
+    
+    // --- B. PREPARE PARENT INVITE (Only if parentEmail is provided) ---
+    let parentOtp = null;
+    let parentToken = null;
 
-    // 1. Send Email to STUDENT (Only their own details)
+    if (parentEmail) {
+      parentToken = crypto.randomUUID();
+      parentOtp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      await ParentInvitation.findOneAndUpdate(
+        { parentEmail, studentEmail }, 
+        {
+          magicLinkToken: parentToken,
+          otp: parentOtp,
+          createdAt: new Date()
+        },
+        { upsert: true, new: true }
+      );
+    }
+
+    // --- C. SEND EMAILS ---
+
+    // 1. ALWAYS Send Email to STUDENT
     await resend.emails.send({
       from: process.env.SMTP_USER,
       to: studentEmail,
@@ -93,34 +98,38 @@ export const inviteStudentAndParent = async (req, res) => {
       html: `<p>You have been invited. OTP: <strong>${studentOtp}</strong>. <a href="${studentLink}">Click here to register</a>`
     });
 
-    // 2. Send Email to PARENT (Contains BOTH Student and Parent details)
-    await resend.emails.send({
-      from: process.env.SMTP_USER,
-      to: parentEmail,
-      subject: `Action Required: Registration for you and ${studentEmail}`,
-      html: `
-        <h2>Welcome!</h2>
-        <p>Please complete the registration for both yourself and your child.</p>
-        
-        <hr />
-        
-        <h3>1. Student Registration (For ${studentEmail})</h3>
-        <p>Use these details to register the student account:</p>
-        <p><strong>Student OTP:</strong> ${studentOtp}</p>
-        <p><strong>Student Link:</strong> <a href="${studentLink}">${studentLink}</a></p>
-        
-        <hr />
-        
-        <h3>2. Parent Registration (For You)</h3>
-        <p>Use these details to create your parent portal account:</p>
-        <p><strong>Parent OTP:</strong> ${parentOtp}</p>
-        <p><strong>Parent Link:</strong> <a href="${parentLink}">${parentLink}</a></p>
-      `
-    });
+    // 2. CONDITIONALLY Send Email to PARENT (Only if parentEmail exists)
+    if (parentEmail && parentOtp) {
+      const parentLink = `${process.env.FRONTEND_BASE}/parent-signup?token=${parentToken}`;
+      
+      await resend.emails.send({
+        from: process.env.SMTP_USER,
+        to: parentEmail,
+        subject: `Action Required: Registration for you and ${studentEmail}`,
+        html: `
+          <h2>Welcome!</h2>
+          <p>Please complete the registration for both yourself and your child.</p>
+          
+          <hr />
+          
+          <h3>1. Student Registration (For ${studentEmail})</h3>
+          <p>Use these details to register the student account:</p>
+          <p><strong>Student OTP:</strong> ${studentOtp}</p>
+          <p><strong>Student Link:</strong> <a href="${studentLink}">${studentLink}</a></p>
+          
+          <hr />
+          
+          <h3>2. Parent Registration (For You)</h3>
+          <p>Use these details to create your parent portal account:</p>
+          <p><strong>Parent OTP:</strong> ${parentOtp}</p>
+          <p><strong>Parent Link:</strong> <a href="${parentLink}">${parentLink}</a></p>
+        `
+      });
+    }
 
-    return sendResponse(res, 200, true, "Invites sent successfully.", {
+    return sendResponse(res, 200, true, "Invites processed successfully.", {
       debug_student_otp: studentOtp,
-      debug_parent_otp: parentOtp
+      debug_parent_otp: parentOtp // Will be null if no parentEmail was sent
     });
 
   } catch (err) {
@@ -128,6 +137,7 @@ export const inviteStudentAndParent = async (req, res) => {
     return sendResponse(res, 500, false, "Server error sending invites.");
   }
 };
+
 
 
 /**
@@ -159,7 +169,6 @@ export const validateDirectStudentInvite = async (req, res) => {
  * 3. PUBLIC: Onboard Direct Student
  * Input: { token, otp, password, name, mobile, class }
  */
-
 
 
 export const onboardDirectStudent = async (req, res) => {
@@ -208,11 +217,16 @@ export const onboardDirectStudent = async (req, res) => {
       amount_for_offline: invite.amount_for_offline
     });
 
-    // 6. Create Parent Relation
-    await StudentParentRelation.create({
-      studentEmail: newStudent.email,
-      parentEmail: invite.parentEmail
-    });
+    // ============================================================
+    // 6. CREATE PARENT RELATION (OPTIONAL)
+    // Only run this if a parent email was actually part of the invite
+    // ============================================================
+    if (invite.parentEmail) {
+      await StudentParentRelation.create({
+        studentEmail: newStudent.email,
+        parentEmail: invite.parentEmail
+      });
+    }
 
     // ============================================================
     // 7. AUTO-ENROLLMENT IN BATCHES (SEQUENTIAL FIX)
@@ -222,8 +236,6 @@ export const onboardDirectStudent = async (req, res) => {
     if (invite.enroll_batches && invite.enroll_batches.length > 0) {
       console.log(`[Auto-Enroll] Found ${invite.enroll_batches.length} batches. Starting sequential enrollment...`);
       
-      // We use a for...of loop to ensure operations happen one by one.
-      // This prevents race conditions or "missing" the second item.
       for (const batch of invite.enroll_batches) {
         try {
             // Safety Check: Ensure the batch object has an ID
@@ -249,7 +261,6 @@ export const onboardDirectStudent = async (req, res) => {
             console.log(`[Auto-Enroll] Success: Enrolled in ${batch.batchName}`);
 
         } catch (enrollError) {
-            // Log the error but CONTINUE the loop so other batches still get added
             console.error(`[Auto-Enroll] Failed to enroll in batch ${batch.batchName}:`, enrollError);
         }
       }
