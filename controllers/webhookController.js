@@ -1,103 +1,88 @@
-import Stripe from "stripe";
+import crypto from "crypto";
 import CourseOrder from "../models/CourseOrder.js";
-import CreditTopUpOrder from "../models/CreditTopUpOrder.js"; 
+import CreditTopUpOrder from "../models/CreditTopUpOrder.js";
 import StudentCredit from "../models/StudentCredit.js";
-import Student from "../models/Student.js"; // Required for Self-Healing
+import Student from "../models/Student.js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
- 
-export const stripeWebhook = async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
+export const razorpayWebhook = async (req, res) => {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error(`Webhook Error: ${err.message}`);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+  const receivedSignature = req.headers["x-razorpay-signature"];
+
+  // IMPORTANT: req.body is a Buffer here
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(req.body)
+    .digest("hex");
+
+  if (expectedSignature !== receivedSignature) {
+    console.error("❌ Razorpay signature mismatch");
+    return res.status(400).send("Invalid signature");
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
+  // Safe to parse AFTER verification
+  const event = JSON.parse(req.body.toString());
 
-    // Retrieve IDs
-    const orderId = session.metadata?.order_id || session.client_reference_id;
-    const studentEmail = session.metadata?.student_email || session.customer_email;
-    const orderType = session.metadata?.order_type || "NEW_REGISTRATION"; 
+  console.log("✅ Razorpay webhook verified:", event.event);
 
-    console.log(`[Stripe] Processing ${orderType} for ${studentEmail}`);
+  if (event.event !== "payment.captured") {
+    return res.json({ received: true });
+  }
 
-    try {
-      // ==========================================
-      // CASE A: TOP-UP (Existing Student)
-      // ==========================================
-      if (orderType === "TOP_UP") {
-        const topUpOrder = await CreditTopUpOrder.findById(orderId);
-        
-        if (topUpOrder) {
-          // 1. Mark Order as PAID
-          topUpOrder.paymentStatus = "PAID";
-          topUpOrder.transactionId = session.payment_intent;
-          await topUpOrder.save();
+  const payment = event.payload.payment.entity;
+  const notes = payment.notes || {};
 
-          // 2. FIND WALLET
-          let wallet = await StudentCredit.findOne({ studentEmail });
+  const orderId = notes.order_id;
+  const orderType = notes.order_type;
+  const studentEmail = notes.student_email;
 
-          // --- SELF-HEALING LOGIC (Fixes "Wallet not found" error) ---
-          if (!wallet) {
-            console.log(`[Stripe] Wallet missing for ${studentEmail}. Creating new wallet...`);
-            
-            // Verify student exists first to link _id correctly
-            const existingStudent = await Student.findOne({ email: studentEmail });
-            
-            if (existingStudent) {
-              wallet = await StudentCredit.create({
-                student_obj_id: existingStudent._id,
-                studentEmail: studentEmail,
-                amount_for_online: 0,
-                amount_for_offline: 0
-              });
-              console.log(`[Stripe] Created new wallet for ${studentEmail}`);
-            } else {
-              console.error(`[Stripe] CRITICAL: Student account ALSO missing for ${studentEmail}. Cannot create wallet.`);
-              return res.json({ received: true });
-            }
-          }
-          // -----------------------------------------------------------
+  try {
+    // ================= TOP-UP =================
+    if (orderType === "TOP_UP") {
+      const topUp = await CreditTopUpOrder.findById(orderId);
+      if (!topUp) return res.json({ received: true });
 
-          // 3. ADD FUNDS
-          if (topUpOrder.batchType === "ONLINE") {
-            wallet.amount_for_online += topUpOrder.amount;
-          } else {
-            wallet.amount_for_offline += topUpOrder.amount;
-          }
-          
-          await wallet.save();
-          console.log(`[Stripe] Top-up: Added ${topUpOrder.amount} to ${topUpOrder.batchType} wallet.`);
-        }
-      } 
-      
-      // ==========================================
-      // CASE B: NEW REGISTRATION (Old Flow)
-      // ==========================================
-      else {
-        const courseOrder = await CourseOrder.findById(orderId);
-        if (courseOrder) {
-          courseOrder.paymentStatus = "PAID";
-          courseOrder.transactionId = session.payment_intent;
-          await courseOrder.save();
-          console.log(`[Stripe] Registration: Order ${orderId} marked as PAID.`);
+      topUp.paymentStatus = "PAID";
+      topUp.transactionId = payment.id;
+      await topUp.save();
+
+      let wallet = await StudentCredit.findOne({ studentEmail });
+
+      if (!wallet) {
+        const student = await Student.findOne({ email: studentEmail });
+        if (student) {
+          wallet = await StudentCredit.create({
+            student_obj_id: student._id,
+            studentEmail,
+            amount_for_online: 0,
+            amount_for_offline: 0
+          });
         }
       }
 
-    } catch (err) {
-      console.error("[Stripe] Database update error:", err);
+      if (wallet) {
+        if (topUp.batchType === "ONLINE") {
+          wallet.amount_for_online += topUp.amount;
+        } else {
+          wallet.amount_for_offline += topUp.amount;
+        }
+        await wallet.save();
+      }
     }
+
+    // ================= NEW REGISTRATION =================
+    else {
+      const courseOrder = await CourseOrder.findById(orderId);
+      if (courseOrder) {
+        courseOrder.paymentStatus = "PAID";
+        courseOrder.transactionId = payment.id;
+        await courseOrder.save();
+      }
+    }
+
+  } catch (err) {
+    console.error("Webhook processing error:", err);
   }
 
-  res.json({ received: true });
+  return res.json({ received: true });
 };

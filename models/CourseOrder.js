@@ -35,8 +35,8 @@ const courseOrderSchema = new mongoose.Schema({
     enum: ['PENDING', 'PAID', 'FAILED'], 
     default: 'PENDING' 
   },
-  stripeSessionId: { type: String }, // To track the session
-  transactionId: { type: String },   // The actual payment ID from Stripe
+   razorpayOrderId: { type: String },
+  transactionId: { type: String },   // The actual payment ID from razorpay
 
 
    isCredentialSent: { type: Boolean, default: false },

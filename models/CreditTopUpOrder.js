@@ -29,7 +29,7 @@ const creditTopUpOrderSchema = new mongoose.Schema({
     enum: ['PENDING', 'PAID', 'FAILED', 'CANCELLED'], 
     default: 'PENDING' 
   },
-  stripeSessionId: { type: String },
+   razorpayOrderId: { type: String },
   transactionId: { type: String },
 
   createdAt: { type: Date, default: Date.now }

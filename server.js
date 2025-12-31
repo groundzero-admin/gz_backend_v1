@@ -49,14 +49,13 @@ import {
   resolveDoubt 
 } from "./controllers/doubtController.js";
 import { attendanceStatusPerSession, attendanceStatusPerStudent, markAttendance } from "./controllers/AttendanceController.js";
-import { stripeWebhook } from "./controllers/webhookController.js";
-import { createCheckoutSession, createTopUpCheckoutSession } from "./controllers/paymentController.js";
 import { getNewJoinersList, sendCredentialsToJoiner, validateInvitationToken } from "./controllers/courseOrderController.js";
 import { remainingSessionInfoBatchForStudent } from "./controllers/RemainingSessionBuy.js";
-import CreditTopUpOrder from "./models/CreditTopUpOrder.js";
 import { inviteTeacher, onboardTeacher, validateTeacherInvite } from "./controllers/teacherOnboardingController.js";
 import { inviteParent, onboardParent, validateParentInvite } from "./controllers/parentOnboardController.js";
 import { inviteStudentAndParent, onboardDirectStudent, validateDirectStudentInvite } from "./controllers/studentdirectInvitation.js";
+import { razorpayWebhook } from "./controllers/webhookController.js";
+import { createCoursePaymentSession, createTopUpPaymentSession } from "./controllers/paymentController.js";
 
 // ---- Server & DB Initialization ----
 
@@ -75,11 +74,11 @@ connectDB();
 
 
 // 2. Define the Webhook Route FIRST (Before express.json)
-// We use express.raw() here because Stripe needs the raw request body to verify the signature.
+// We use express.raw() here because razorpay needs the raw request body to verify the signature.
 app.post(
-  "/api/webhook", 
+  "/api/razorpay-webhook", 
   express.raw({ type: "application/json" }), 
-  stripeWebhook
+    razorpayWebhook
 );
 
 
@@ -382,7 +381,7 @@ app.post(
   "/api/student/create-credit-topup-session" , 
   requireAuthCookie , 
   requireStudent , 
-  createTopUpCheckoutSession
+  createTopUpPaymentSession
 )
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -582,7 +581,7 @@ app.post(
 
 
 /////////////////////////////////////////////////////////    payment 
-app.post("/api/create-checkout-session" , createCheckoutSession)
+app.post("/api/create-checkout-session" , createCoursePaymentSession)
 
 
 

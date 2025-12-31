@@ -1,18 +1,17 @@
-import Stripe from "stripe";
-import Admin from "../models/Admin.js";
-import Student from "../models/Student.js";
-import Teacher from "../models/Teacher.js";
-import Parent from "../models/Parent.js";
+import Razorpay from "razorpay";
 import CourseOrder from "../models/CourseOrder.js";
-import { sendResponse } from "../middleware/auth.js";
 import CreditTopUpOrder from "../models/CreditTopUpOrder.js";
+import { sendResponse } from "../middleware/auth.js";
 
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET
+});
 
-
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-
-export const createCheckoutSession = async (req, res) => {
+// =====================================================
+// CREATE COURSE REGISTRATION PAYMENT
+// =====================================================
+export const createCoursePaymentSession = async (req, res) => {
   try {
     const {
       parentName,
@@ -27,231 +26,130 @@ export const createCheckoutSession = async (req, res) => {
       purchaseType
     } = req.body;
 
-    // Basic validation
-    if (!studentEmail) {
-      return sendResponse(res, 400, false, "Student email is required.");
-    }
-    if (!parentEmail) {
-      return sendResponse(res, 400, false, "Parent email is required.");
-    }
-    if (!batchType || !["OFFLINE", "ONLINE"].includes(batchType)) {
-      return sendResponse(res, 400, false, "Invalid or missing batchType.");
-    }
-    if (!purchaseType || !["SINGLE_SESSION", "FULL_BUNDLE"].includes(purchaseType)) {
-      return sendResponse(res, 400, false, "Invalid or missing purchaseType.");
-    }
+    if (!studentEmail || !parentEmail)
+      return sendResponse(res, 400, false, "Emails required");
 
-    const e = studentEmail.toLowerCase().trim();
+    if (!["ONLINE", "OFFLINE"].includes(batchType))
+      return sendResponse(res, 400, false, "Invalid batch type");
 
-    // 1) Ensure the student email is not already registered as any user
-    const existingUsers = await Promise.all([
-      Student.findOne({ email: e }),
-      Teacher.findOne({ email: e }),
-      Parent.findOne({ email: e }),
-      Admin.findOne({ email: e }),
-    ]);
+    if (!["SINGLE_SESSION", "FULL_BUNDLE"].includes(purchaseType))
+      return sendResponse(res, 400, false, "Invalid purchase type");
 
-    if (existingUsers.some(Boolean)) {
-      return sendResponse(res, 400, false, "This student email is already registered in the system.");
-    }
-
-    // 2) Remove old pending orders for this studentEmail (only PENDING paymentStatus)
-    await CourseOrder.deleteMany({
-      studentEmail: e,
-      paymentStatus: "PENDING"
-    });
-
-    // 3) Price calculation (server-side)
+    // ================= PRICE LOGIC =================
     let unitPrice = batchType === "OFFLINE" ? 1500 : 1000;
-    let finalAmount = unitPrice;
-    let descriptionText = `${batchType} - Single Session`;
+    let finalAmount =
+      purchaseType === "FULL_BUNDLE" ? unitPrice * 12 : unitPrice;
 
-    if (purchaseType === "FULL_BUNDLE") {
-      finalAmount = unitPrice * 12;
-      descriptionText = `${batchType} - Full Course Bundle (12 Sessions)`;
-    }
-
-    // 4) Create DB order (use schema fields exactly)
-    const newOrder = await CourseOrder.create({
+    // ================= CREATE DB ORDER =================
+    const order = await CourseOrder.create({
       parentName,
       parentPhone,
       parentEmail,
       studentName,
-      studentEmail: e,
+      studentEmail: studentEmail.toLowerCase(),
       board,
       classGrade,
       schoolName,
       batchType,
       purchaseType,
       amount: finalAmount,
-      currency: "inr",
-      paymentStatus: "PENDING",     // <-- schema field
-      isCredentialSent: false
+      currency: "INR",
+      paymentStatus: "PENDING"
     });
 
-    // 5) Create Stripe Checkout Session using Stripe constructor you provided
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "inr",
-            product_data: {
-              name: "Course Enrollment",
-              description: descriptionText,
-            },
-            unit_amount: finalAmount * 100, // paisa
-          },
-          quantity: 1,
-        },
-      ],
-      mode: "payment",
-      success_url: `${process.env.FRONTEND_BASE}/payment-success`,
-      cancel_url: `${process.env.FRONTEND_BASE}/payment-failed`,
-      client_reference_id: newOrder._id.toString(),
-      customer_email: parentEmail,
+    // ================= RAZORPAY ORDER =================
+    const razorpayOrder = await razorpay.orders.create({
+      amount: finalAmount * 100,
+      currency: "INR",
+      receipt: order._id.toString(),
+      notes: {
+        order_type: "NEW_REGISTRATION",
+        order_id: order._id.toString(),
+        student_email: studentEmail
+      }
     });
 
-    // 6) Save stripeSessionId to the order
-    newOrder.stripeSessionId = session.id;
-    await newOrder.save();
+    order.razorpayOrderId = razorpayOrder.id;
+    await order.save();
 
-    return res.json({ url: session.url });
+    return res.status(200).json({
+      success: true,
+      key: process.env.RAZORPAY_KEY_ID,
+      order: razorpayOrder
+    });
+
   } catch (error) {
-    console.error("Stripe Checkout Error:", error);
-    return res.status(500).json({ error: "Failed to create session" });
+    console.error("createCoursePayment error:", error);
+    return sendResponse(res, 500, false, "Failed to create payment");
   }
 };
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// Standard Pricing Constants
-const PRICE_ONLINE = 1000;
-const PRICE_OFFLINE = 1500;
-
-export const createTopUpCheckoutSession = async (req, res) => {
+// =====================================================
+// CREATE TOP-UP PAYMENT
+// =====================================================
+export const createTopUpPaymentSession = async (req, res) => {
   try {
-    const { 
-      batch_obj_id,   // Which batch is this for?
-      batchType,      // 'ONLINE' or 'OFFLINE'
-      no_of_classes,  // e.g., 1, 5, 12
-      purchaseType    // e.g. "Next Session" or "Full Bundle"
-    } = req.body;
+    const { batchType, no_of_classes, purchaseType, batch_obj_id } = req.body;
 
+    if (!req.authPayload)
+      return sendResponse(res, 401, false, "Unauthorized");
 
-    console.log(batch_obj_id , req.body )
-
-    // 1. Authentication Check
-    if (!req.authPayload) {
-        return sendResponse(res, 401, false, "Unauthorized: No user data found.");
-    }
     const { id: studentId, email: studentEmail } = req.authPayload;
 
-    // 2. Input Validation
-    if (!batchType || !no_of_classes || no_of_classes < 1) {
-      return sendResponse(res, 400, false, "Batch Type and valid No. of Classes are required.");
-    }
+    if (!batchType || !no_of_classes)
+      return sendResponse(res, 400, false, "Missing data");
 
-    // ============================================================
-    // 3. BACKEND PRICE CALCULATION (SECURITY)
-    // ============================================================
-    let costPerClass = 0;
+    let pricePerClass =
+      batchType === "ONLINE" ? 1000 :
+      batchType === "OFFLINE" ? 1500 : 0;
 
-    if (batchType === "ONLINE") {
-      costPerClass = PRICE_ONLINE;
-    } else if (batchType === "OFFLINE") {
-      costPerClass = PRICE_OFFLINE;
-    } else {
-      return sendResponse(res, 400, false, "Invalid Batch Type.");
-    }
+    if (!pricePerClass)
+      return sendResponse(res, 400, false, "Invalid batch type");
 
-    const finalAmount = costPerClass * Number(no_of_classes);
+    const finalAmount = pricePerClass * Number(no_of_classes);
 
-    // ============================================================
-    // 4. CLEANUP: Soft delete old pending orders
-    // ============================================================
+    // Cancel old pending
     await CreditTopUpOrder.updateMany(
-      {
-        student_obj_id: studentId,
-        paymentStatus: 'PENDING'
-      },
-      {
-        $set: { paymentStatus: 'CANCELLED' }
-      }
+      { student_obj_id: studentId, paymentStatus: "PENDING" },
+      { $set: { paymentStatus: "CANCELLED" } }
     );
 
-    // ============================================================
-    // 5. Create Order in DB (With Calculated Amount)
-    // ============================================================
-    const newTopUp = await CreditTopUpOrder.create({
+    // Create DB order
+    const order = await CreditTopUpOrder.create({
       student_obj_id: studentId,
-      studentEmail: studentEmail,
-      batch_obj_id: batch_obj_id || null, // Optional if just generic topup
-      no_of_classes: Number(no_of_classes),
+      studentEmail,
+      batch_obj_id: batch_obj_id || null,
       batchType,
-      purchaseType: purchaseType || `${no_of_classes} Sessions Top-Up`,
-      amount: finalAmount, // <--- Backend set value
-      paymentStatus: 'PENDING'
+      no_of_classes,
+      purchaseType: purchaseType || `${no_of_classes} Sessions`,
+      amount: finalAmount,
+      paymentStatus: "PENDING"
     });
 
-    // ============================================================
-    // 6. Create Stripe Session
-    // ============================================================
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "inr",
-            product_data: {
-              name: `${batchType} Sessions (${no_of_classes})`,
-              description: `Top-up for ${studentEmail}`,
-            },
-            unit_amount: finalAmount * 100, // Convert to paisa
-          },
-          quantity: 1,
-        },
-      ],
-      mode: "payment",
-    // --- UPDATED SUCCESS URL ---
-      success_url: `${process.env.FRONTEND_BASE}/student/dashboard/payment-result?payment=success`, 
-      
-      // I also updated cancel to go back to dashboard so they aren't stuck on a blank page
-      cancel_url: `${process.env.FRONTEND_BASE}/student/dashboard/payment-result?payment=cancelled`,
-      // KEY METADATA
-      metadata: {
-        order_type: "TOP_UP", 
-        order_id: newTopUp._id.toString(),
+    // Razorpay order
+    const razorpayOrder = await razorpay.orders.create({
+      amount: finalAmount * 100,
+      currency: "INR",
+      receipt: order._id.toString(),
+      notes: {
+        order_type: "TOP_UP",
+        order_id: order._id.toString(),
         student_email: studentEmail
-      },
+      }
     });
 
-    // 7. Save Session ID
-    newTopUp.stripeSessionId = session.id;
-    await newTopUp.save();
+    order.razorpayOrderId = razorpayOrder.id;
+    await order.save();
 
-    return sendResponse(res, 200, true, "Top-up session created.", { 
-      url: session.url,
-      amount: finalAmount // Return calculated amount so frontend knows what happened
+    return sendResponse(res, 200, true, "Top-up order created", {
+      key: process.env.RAZORPAY_KEY_ID,
+      order: razorpayOrder,
+      amount: finalAmount
     });
 
   } catch (error) {
-    console.error("createTopUpCheckoutSession error:", error);
-    return sendResponse(res, 500, false, `Server error: ${error.message}`);
+    console.error("createTopUpPayment error:", error);
+    return sendResponse(res, 500, false, "Server error");
   }
 };
