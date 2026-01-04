@@ -6,7 +6,7 @@ import BatchStudentRelation from "../models/BatchStudentRelation.js";
 import Student from "../models/Student.js";
 import { sendResponse } from "../middleware/auth.js";
 import StudentCredit from "../models/StudentCredit.js";
-
+import Attendance from "../models/Attendance.js";
 
 
 
@@ -697,3 +697,105 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
   }
 };
 
+
+
+
+
+
+
+
+export const studentBatchProgress = async (req, res) => {
+  try {
+    const studentId = req.authPayload.id; // From Auth Middleware
+    const { batch_obj_id } = req.body;
+    const now = new Date();
+
+    if (!batch_obj_id) {
+      return sendResponse(res, 400, false, "Batch ID is required.");
+    }
+
+    // 1. CHECK ENROLLMENT
+    // Security check: Don't give info if student isn't in the batch
+    const isEnrolled = await BatchStudentRelation.exists({
+      student_obj_id: studentId,
+      batch_obj_id: batch_obj_id
+    });
+
+    if (!isEnrolled) {
+      return sendResponse(res, 403, false, "You are not enrolled in this batch.");
+    }
+
+    // 2. FETCH UPCOMING SESSIONS (Future)
+    // Get max 2 sessions immediately following current time
+    const upcomingSessions = await BatchSession.find({
+      batch_obj_id: batch_obj_id,
+      date: { $gt: now } // Date is strictly in the future
+    })
+    .sort({ date: 1 }) // Closest date first
+    .limit(2);
+
+    // 3. FETCH ALL PAST SESSIONS
+    // Get all sessions that have happened up to now
+    const pastSessions = await BatchSession.find({
+      batch_obj_id: batch_obj_id,
+      date: { $lte: now } // Date is in the past or now
+    })
+    .sort({ date: -1 }); // Most recent past session first
+
+    // 4. SEPARATE ATTENDED vs MISSED
+    
+    // Get just the IDs of past sessions to query attendance efficiently
+    const pastSessionIds = pastSessions.map(session => session._id);
+
+    // Find attendance records for this student for these specific past sessions
+    const attendanceRecords = await Attendance.find({
+      student_obj_id: studentId,
+      session_obj_id: { $in: pastSessionIds } // Note: Schema uses 'session_obj_id'
+    });
+
+    // Create a Set of Session IDs where the student was definitely PRESENT
+    const presentSessionIds = new Set();
+    
+    attendanceRecords.forEach(record => {
+      if (record.status === "PRESENT") {
+        presentSessionIds.add(record.session_obj_id.toString());
+      }
+    });
+
+    const attendedList = [];
+    const missedList = [];
+
+    // Loop through all past sessions and categorize them
+    pastSessions.forEach(session => {
+      const sId = session._id.toString();
+      
+      if (presentSessionIds.has(sId)) {
+        // Student was marked PRESENT
+        attendedList.push(session);
+      } else {
+        // Either marked ABSENT or No Record found (skipped class)
+        missedList.push(session);
+      }
+    });
+
+    // 5. SEND RESPONSE
+    return sendResponse(res, 200, true, "Batch status retrieved successfully.", {
+      upcoming: upcomingSessions,
+      attended: attendedList,
+      missed: missedList,
+      
+      // Optional: Helpful stats
+      stats: {
+        totalPastClasses: pastSessions.length,
+        totalAttended: attendedList.length,
+        attendancePercentage: pastSessions.length > 0 
+          ? ((attendedList.length / pastSessions.length) * 100).toFixed(1) + "%" 
+          : "0%"
+      }
+    });
+
+  } catch (err) {
+    console.error("getStudentBatchStatus error:", err);
+    return sendResponse(res, 500, false, "Server error retrieving batch status.");
+  }
+};

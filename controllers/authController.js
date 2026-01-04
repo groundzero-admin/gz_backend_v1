@@ -225,7 +225,7 @@ export const checkRole = async (req, res) => {
       if (actualRole === "admin") {
         user = await Admin.findById(userId).select("name");
       } else if (actualRole === "student") {
-        user = await Student.findById(userId).select("name student_number email");
+        user = await Student.findById(userId).select("name student_number email class");
       } else if (actualRole === "teacher") {
         user = await Teacher.findById(userId).select("name teacher_number");
       } else if (actualRole === "parent") {
@@ -233,6 +233,10 @@ export const checkRole = async (req, res) => {
       }
 
       const username = user?.name || "Unknown";
+
+      const studentClass = actualRole === "student" ? user?.class || null : null;
+
+
       const user_number =
         actualRole === "student"
           ? user.student_number
@@ -261,7 +265,8 @@ export const checkRole = async (req, res) => {
         role: actualRole,
         email: userEmail,
         user_number,
-        credit // Returns { online: 12000, offline: 0 }
+        credit , // Returns { online: 12000, offline: 0 } 
+         class: studentClass 
       });
     }
 

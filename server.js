@@ -39,7 +39,8 @@ import {
   // Student
   myLiveBatchesForStudent,
   getSessionForABatchForStudent,
-  getTodayLiveBatchInfoForStudent
+  getTodayLiveBatchInfoForStudent,
+  studentBatchProgress
 } from "./controllers/BatchController.js";
 
 import { 
@@ -366,6 +367,9 @@ app.get("/api/student/getsessionforabatch", requireAuthCookie, requireStudent, g
 
 // 3. Today's Batch Info (Class today? Next class?)
 app.post("/api/student/gettodaylivebatchinfo", requireAuthCookie, requireStudent, getTodayLiveBatchInfoForStudent);
+
+app.post("/api/student/getbatchprogress", requireAuthCookie, requireStudent, studentBatchProgress);
+
 
 
 app.get(
