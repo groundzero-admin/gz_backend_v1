@@ -57,6 +57,7 @@ import { inviteParent, onboardParent, validateParentInvite } from "./controllers
 import { inviteStudentAndParent, onboardDirectStudent, validateDirectStudentInvite } from "./controllers/studentdirectInvitation.js";
 import { razorpayWebhook } from "./controllers/webhookController.js";
 import { createCoursePaymentSession, createTopUpPaymentSession } from "./controllers/paymentController.js";
+import { updateStudentProfile } from "./controllers/studentController.js";
 
 // ---- Server & DB Initialization ----
 
@@ -387,6 +388,11 @@ app.post(
   requireStudent , 
   createTopUpPaymentSession
 )
+
+
+
+
+app.put(   "/api/student/update-profile" , requireAuthCookie , requireStudent , updateStudentProfile  )
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 
