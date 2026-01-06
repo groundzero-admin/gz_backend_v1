@@ -621,7 +621,7 @@ export const getSessionForABatchForStudent = async (req, res) => {
 /**
  * Controller: getTodayLiveBatchInfoForStudent
  * Rules:
- *  - ONLINE batch → hide fields if totalCredit < 1000
+ *  - ONLINE batch → hide fields if totalCredit < 1500
  *  - OFFLINE batch → hide fields if totalCredit < 1500
  *  - Hidden fields: title, description, meetingLinkOrLocation
  */

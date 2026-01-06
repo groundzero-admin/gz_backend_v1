@@ -31,7 +31,7 @@ export const markAttendance = async (req, res) => {
     }
 
     const isOnline = session.sessionType === "ONLINE";
-    const cost = isOnline ? 1000 : 1500;
+    const cost = isOnline ? 1500 : 1500;
 
     // 3. Determine Action (Deduct vs Refund)
     const existing = await Attendance.findOne({ student_obj_id, session_obj_id });

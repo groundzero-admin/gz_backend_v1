@@ -10,7 +10,7 @@ import crypto from "crypto"; // Native Node module for random numbers
 import Parent from "../models/Parent.js";
 import StudentParentRelation from "../models/StudentParentRelation.js";
 import ParentInvitation from "../models/ParentInvitation.js";
-
+import Batch from "../models/Batch.js";
 
 
 /**
@@ -71,13 +71,11 @@ const resend = new Resend(RESEND_EMAIL_API_KEY);
  * Input: { course_order_id }
  * Logic: Checks Payment -> Generates OTP/Token -> Saves to DB -> Sends Email -> Updates Order
  */
-
 export const sendCredentialsToJoiner = async (req, res) => {
   try {
-    const { 
-      course_order_id, 
-      batches // Expecting: [{ batch_obj_id: "...", batchName: "..." }]
-    } = req.body;
+    const { course_order_id, assigned_batches = [] } = req.body;
+
+    console.log("Assigned batch IDs:", assigned_batches);
 
     if (!course_order_id) {
       return sendResponse(res, 400, false, "course_order_id is required.");
@@ -90,23 +88,40 @@ export const sendCredentialsToJoiner = async (req, res) => {
     if (order.isCredentialSent) return sendResponse(res, 409, false, "Credentials already sent.");
 
     // ============================================================
-    // FLOW A: STUDENT ONBOARDING (Standard)
+    // 🔹 BUILD enroll_batches FROM IDS
     // ============================================================
-    
+
+    let enroll_batches = [];
+
+    if (assigned_batches.length > 0) {
+      const batches = await Batch.find({
+        _id: { $in: assigned_batches }
+      }).select("_id batchName");
+
+      enroll_batches = batches.map(b => ({
+        batch_obj_id: b._id,
+        batchName: b.batchName
+      }));
+    }
+
+    // ============================================================
+    // FLOW A: STUDENT ONBOARDING
+    // ============================================================
+
     const studentToken = uuidv4();
     const studentOtp = crypto.randomInt(100000, 999999).toString();
 
-    // A2. Save to Student Invitation Table (WITH BATCHES)
+    // A2. Save to Student Invitation Table
     await NewJoineeInvitation.findOneAndUpdate(
       { course_order_id: order._id },
       {
         studentEmail: order.studentEmail,
         magicLinkToken: studentToken,
         otp: studentOtp,
-        
-        // --- NEW: Save the batches to enroll later ---
-        enroll_batches: batches || [],
-        
+
+        // ✅ now matches schema perfectly
+        enroll_batches,
+
         createdAt: new Date()
       },
       { upsert: true, new: true }
@@ -114,10 +129,10 @@ export const sendCredentialsToJoiner = async (req, res) => {
 
     // A3. Send Email to Student
     const studentLink = `${FRONTEND_BASE}/register-student?token=${studentToken}`;
-    
+
     await resend.emails.send({
-      from: SMTP_USER, 
-      to: order.studentEmail, 
+      from: SMTP_USER,
+      to: order.studentEmail,
       subject: "Welcome! Complete Your Student Registration",
       html: `
         <h1>Welcome, ${order.studentName}!</h1>
@@ -127,33 +142,29 @@ export const sendCredentialsToJoiner = async (req, res) => {
       `
     });
 
-    console.log(`[Credentials] Student Invite sent to ${studentLink} | OTP: ${studentOtp}`);
+    console.log(`[Credentials] Student Invite sent to ${studentLink}`);
 
     // ============================================================
     // FLOW B: PARENT ONBOARDING
     // ============================================================
-    
+
     const existingParent = await Parent.findOne({ email: order.parentEmail });
 
     if (existingParent) {
-      // LINK EXISTING PARENT
       await StudentParentRelation.findOneAndUpdate(
         { studentEmail: order.studentEmail, parentEmail: order.parentEmail },
         { createdAt: new Date() },
         { upsert: true, new: true }
       );
-      
-      // Notify
+
       await resend.emails.send({
         from: SMTP_USER,
         to: order.parentEmail,
         subject: "New Student Linked",
         html: `<p>Student <strong>${order.studentName}</strong> has been linked to your account.</p>`
       });
-      console.log(`[Credentials] Existing Parent ${order.parentEmail} linked.`);
 
     } else {
-      // INVITE NEW PARENT
       const parentToken = uuidv4();
       const parentOtp = crypto.randomInt(100000, 999999).toString();
 
@@ -168,6 +179,7 @@ export const sendCredentialsToJoiner = async (req, res) => {
       );
 
       const parentLink = `${FRONTEND_BASE}/parent-signup?token=${parentToken}`;
+
       await resend.emails.send({
         from: SMTP_USER,
         to: order.parentEmail,
@@ -178,10 +190,12 @@ export const sendCredentialsToJoiner = async (req, res) => {
           <p><a href="${parentLink}">Click here to register</a></p>
         `
       });
-      console.log(`[Credentials] New Parent Invite sent to ${parentLink} | OTP: ${parentOtp}`);
     }
 
-    // 6. Update CourseOrder Flag
+    // ============================================================
+    // FINAL: Update Order
+    // ============================================================
+
     order.isCredentialSent = true;
     await order.save();
 

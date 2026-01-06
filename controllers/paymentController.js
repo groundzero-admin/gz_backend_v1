@@ -3,6 +3,12 @@ import CourseOrder from "../models/CourseOrder.js";
 import CreditTopUpOrder from "../models/CreditTopUpOrder.js";
 import { sendResponse } from "../middleware/auth.js";
 
+
+import Admin from "../models/Admin.js"; // Adjust path
+import Teacher from "../models/Teacher.js"; // Adjust path
+import Parent from "../models/Parent.js"; // Adjust path
+import Student from "../models/Student.js"; // Adjust path
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET
@@ -35,18 +41,52 @@ export const createCoursePaymentSession = async (req, res) => {
     if (!["SINGLE_SESSION", "FULL_BUNDLE"].includes(purchaseType))
       return sendResponse(res, 400, false, "Invalid purchase type");
 
-    // ================= PRICE LOGIC =================
-    let unitPrice = batchType === "OFFLINE" ? 1500 : 1000;
+    // ================= A. EMAIL VALIDATION LOGIC =================
+
+    const sEmail = studentEmail.toLowerCase();
+    const pEmail = parentEmail.toLowerCase();
+
+    // 1. Check STUDENT Email (Must be unique across ALL tables)
+    const studentInStudent = await Student.findOne({ email: sEmail });
+    const studentInParent = await Parent.findOne({ email: sEmail });
+    const studentInTeacher = await Teacher.findOne({ email: sEmail });
+    const studentInAdmin = await Admin.findOne({ email: sEmail });
+
+    if (studentInStudent || studentInParent || studentInTeacher || studentInAdmin) {
+      return sendResponse(
+        res, 
+        409, 
+        false, 
+        "Student email is already registered."
+      );
+    }
+
+    // 2. Check PARENT Email (Allowed in Parent table, forbidden in others)
+    const parentInStudent = await Student.findOne({ email: pEmail });
+    const parentInTeacher = await Teacher.findOne({ email: pEmail });
+    const parentInAdmin = await Admin.findOne({ email: pEmail });
+
+    if (parentInStudent || parentInTeacher || parentInAdmin) {
+      return sendResponse(
+        res, 
+        409, 
+        false, 
+        "Parent email is already exist as  a Student or  Teacher account . Please contact us. "
+      );
+    }
+
+    // ================= B. PRICE LOGIC =================
+    let unitPrice = batchType === "OFFLINE" ? 1500 : 1500;
     let finalAmount =
       purchaseType === "FULL_BUNDLE" ? unitPrice * 12 : unitPrice;
 
-    // ================= CREATE DB ORDER =================
+    // ================= C. CREATE DB ORDER =================
     const order = await CourseOrder.create({
       parentName,
       parentPhone,
-      parentEmail,
+      parentEmail: pEmail,
       studentName,
-      studentEmail: studentEmail.toLowerCase(),
+      studentEmail: sEmail,
       board,
       classGrade,
       schoolName,
@@ -57,7 +97,7 @@ export const createCoursePaymentSession = async (req, res) => {
       paymentStatus: "PENDING"
     });
 
-    // ================= RAZORPAY ORDER =================
+    // ================= D. RAZORPAY ORDER =================
     const razorpayOrder = await razorpay.orders.create({
       amount: finalAmount * 100,
       currency: "INR",
@@ -65,7 +105,7 @@ export const createCoursePaymentSession = async (req, res) => {
       notes: {
         order_type: "NEW_REGISTRATION",
         order_id: order._id.toString(),
-        student_email: studentEmail
+        student_email: sEmail
       }
     });
 
@@ -85,6 +125,7 @@ export const createCoursePaymentSession = async (req, res) => {
 };
 
 
+
 // =====================================================
 // CREATE TOP-UP PAYMENT
 // =====================================================
@@ -101,7 +142,7 @@ export const createTopUpPaymentSession = async (req, res) => {
       return sendResponse(res, 400, false, "Missing data");
 
     let pricePerClass =
-      batchType === "ONLINE" ? 1000 :
+      batchType === "ONLINE" ? 1500 :
       batchType === "OFFLINE" ? 1500 : 0;
 
     if (!pricePerClass)
