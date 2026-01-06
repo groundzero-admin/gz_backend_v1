@@ -40,7 +40,8 @@ import {
   myLiveBatchesForStudent,
   getSessionForABatchForStudent,
   getTodayLiveBatchInfoForStudent,
-  studentBatchProgress
+  studentBatchProgress,
+  unlinkStudentFromBatchForAdmin
 } from "./controllers/BatchController.js";
 
 import { 
@@ -158,7 +159,7 @@ app.get("/api/admin/getsessionforabatch", requireAuthCookie, requireAdmin, getSe
 // 7. Get Students in a Batch
 app.get("/api/admin/getstudentofabatch", requireAuthCookie, requireAdmin, getStudentInSBatchForAdmin);
 
-
+app.post( "/api/admin/unlinkstudentfrombatch",   requireAuthCookie,  requireAdmin,  unlinkStudentFromBatchForAdmin );
 
 
 

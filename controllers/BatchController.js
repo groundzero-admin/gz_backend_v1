@@ -799,3 +799,48 @@ export const studentBatchProgress = async (req, res) => {
     return sendResponse(res, 500, false, "Server error retrieving batch status.");
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+export const unlinkStudentFromBatchForAdmin = async (req, res) => {
+  try {
+    const { batch_obj_id, student_number } = req.body;
+
+    // 1. Validate Input
+    if (!batch_obj_id || !student_number)
+      return sendResponse(res, 400, false, "Batch ID and Student Number are required.");
+
+    const studentNumberClean = String(student_number).toUpperCase().trim();
+
+    // 2. Find the Student (to get their Object ID)
+    const student = await Student.findOne({ student_number: studentNumberClean });
+    if (!student) {
+      return sendResponse(res, 404, false, "Student with this Student Number not found.");
+    }
+
+    // 3. Find and Delete the Relation
+    const deletedLink = await BatchStudentRelation.findOneAndDelete({
+      batch_obj_id: batch_obj_id,
+      student_obj_id: student._id
+    });
+
+    // 4. Check if a link actually existed
+    if (!deletedLink) {
+      return sendResponse(res, 404, false, "Student was not linked to this batch.");
+    }
+
+    return sendResponse(res, 200, true, "Student successfully unlinked from batch.", deletedLink);
+
+  } catch (err) {
+    console.error("unlinkStudentFromBatchForAdmin error:", err);
+    return sendResponse(res, 500, false, "Server error unlinking student.");
+  }
+};
