@@ -59,6 +59,7 @@ import { inviteStudentAndParent, onboardDirectStudent, validateDirectStudentInvi
 import { razorpayWebhook } from "./controllers/webhookController.js";
 import { createCoursePaymentSession, createTopUpPaymentSession } from "./controllers/paymentController.js";
 import { updateStudentProfile } from "./controllers/studentController.js";
+import { getallinvitationLinksandOtp } from "./controllers/getallinvitationLinks.js";
 
 // ---- Server & DB Initialization ----
 
@@ -221,7 +222,7 @@ app.post(
   updateStudentCredits
 );
 
-
+app.get("/api/admin/getalllinksandotp" ,  requireAuthCookie , requireAdmin , getallinvitationLinksandOtp)
 //////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
