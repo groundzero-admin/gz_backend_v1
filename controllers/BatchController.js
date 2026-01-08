@@ -732,7 +732,7 @@ export const studentBatchProgress = async (req, res) => {
       date: { $gt: now } // Date is strictly in the future
     })
     .sort({ date: 1 }) // Closest date first
-    .limit(2);
+   
 
     // 3. FETCH ALL PAST SESSIONS
     // Get all sessions that have happened up to now

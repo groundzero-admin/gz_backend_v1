@@ -17,9 +17,9 @@ export const getallinvitationLinksandOtp = async (req, res) => {
     // 2. Format: Student Direct Invites
     const formattedDirect = directInvites.map(inv => ({
       _id: inv._id,
-      type: "DIRECT_STUDENT_INVITE",
+      type: "INVITED BY ADMIN",
       email: inv.studentEmail,
-      details: `Parent: ${inv.parentEmail}`, // Extra context
+      role: "STUDENT" , // Extra context
       link: `${frontendBase}/student-signup-direct?token=${inv.magicLinkToken}`,
       otp: inv.otp,
       createdAt: inv.createdAt
@@ -28,9 +28,9 @@ export const getallinvitationLinksandOtp = async (req, res) => {
     // 3. Format: New Joinee (Course Buyers)
     const formattedNewJoinee = newJoineeInvites.map(inv => ({
       _id: inv._id,
-      type: "NEW_JOINEE_INVITE", // From course purchase
+      type: "PAID REGISTRATION", // From course purchase
       email: inv.studentEmail,
-      details: "Course Purchase",
+      role : "STUDENT",
       link: `${frontendBase}/register-student?token=${inv.magicLinkToken}`,
       otp: inv.otp,
       createdAt: inv.createdAt
@@ -41,7 +41,7 @@ export const getallinvitationLinksandOtp = async (req, res) => {
       _id: inv._id,
       type: "PARENT_INVITE",
       email: inv.parentEmail,
-      details: `For Child: ${inv.studentEmail}`, // Extra context
+      role: "PARENT",  // Extra context
       link: `${frontendBase}/parent-signup?token=${inv.magicLinkToken}`,
       otp: inv.otp,
       createdAt: inv.createdAt
