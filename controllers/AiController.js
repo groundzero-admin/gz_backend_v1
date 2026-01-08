@@ -232,8 +232,14 @@ export const askQ = async (req, res) => {
 export const loadMyChat = async (req, res) => {
   try {
     const studentId = req.authPayload.id;
-    const chats = await PromptHistory.find({ studentId: studentId })
-      .sort({ createdAt: -1 }) // newest first
+    const { page = 1, limit = 10 } = req.body;
+
+    const skip = (page - 1) * limit;
+
+    const chats = await PromptHistory.find({ studentId })
+      .sort({ createdAt: -1 })   // newest first
+      .skip(skip)
+      .limit(limit)
       .select("prompt response isBadPrompt createdAt");
 
     return sendResponse(res, 200, true, "Chat history retrieved.", chats);
@@ -242,6 +248,7 @@ export const loadMyChat = async (req, res) => {
     return sendResponse(res, 500, false, "Server error retrieving chat history.");
   }
 };
+
 
 /**
  * API 4: Get all prompt history for a student (Admin/Teacher/Parent)
