@@ -188,8 +188,11 @@ export const onboardDirectStudent = async (req, res) => {
     if (!invite) return sendResponse(res, 404, false, "Invalid invitation.");
     if (String(invite.otp) !== String(otp)) return sendResponse(res, 401, false, "Incorrect OTP.");
 
+    const studentEmail = invite.studentEmail.trim().toLowerCase();
+
+
     // 3. Double Check Duplicate
-    const existing = await Student.findOne({ email: invite.studentEmail });
+    const existing = await Student.findOne({ email: studentEmail });
     if (existing) {
       await StudentDirectInvitation.findByIdAndDelete(invite._id);
       return sendResponse(res, 409, false, "Student already registered.");
@@ -201,7 +204,7 @@ export const onboardDirectStudent = async (req, res) => {
 
     const newStudent = await Student.create({
       name,
-      email: invite.studentEmail,
+      email: studentEmail ,
       password: hashedPassword,
       mobile: mobile || "",
       class: Number(studentClass) || null,

@@ -135,8 +135,21 @@ export const onboardParent = async (req, res) => {
     if (!invitation) return sendResponse(res, 404, false, "Invalid invitation.");
     if (String(invitation.otp) !== String(otp)) return sendResponse(res, 401, false, "Incorrect OTP.");
 
+
+    if (!invitation.parentEmail) {
+  return sendResponse(res, 400, false, "Invitation email is missing.");
+}
+
+const parentEmail = invitation.parentEmail.trim().toLowerCase();
+const studentEmail = invitation.studentEmail
+  ? invitation.studentEmail.trim().toLowerCase()
+  : null;
+
+
+
+
     // 3. Double-check if Parent already exists (Race condition safety)
-    const existingParent = await Parent.findOne({ email: invitation.parentEmail });
+    const existingParent = await Parent.findOne({ email: parentEmail  });
     if (existingParent) {
       await ParentInvitation.findByIdAndDelete(invitation._id);
       return sendResponse(res, 409, false, "Parent account already exists.");
@@ -147,7 +160,7 @@ export const onboardParent = async (req, res) => {
     
     const newParent = await Parent.create({
       name,
-      email: invitation.parentEmail,
+      email: parentEmail  ,
       password: hashedPassword,
       mobile: mobile || "",
       role: "parent"
@@ -157,8 +170,8 @@ export const onboardParent = async (req, res) => {
     // We use findOneAndUpdate with upsert to avoid errors if link somehow exists
     await StudentParentRelation.findOneAndUpdate(
       { 
-        studentEmail: invitation.studentEmail, 
-        parentEmail: invitation.parentEmail 
+        studentEmail: studentEmail  , 
+        parentEmail:   parentEmail
       },
       { createdAt: new Date() },
       { upsert: true, new: true }

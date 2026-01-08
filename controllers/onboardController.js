@@ -45,11 +45,16 @@ export const completeStudentRegistration = async (req, res) => {
     if (!invitation) return sendResponse(res, 404, false, "Invalid or expired invitation.");
     if (String(invitation.otp) !== String(otp)) return sendResponse(res, 401, false, "Incorrect OTP.");
 
+
+    const studentEmail = invitation.studentEmail.trim().toLowerCase();
+
+
+
     // 2. Check Order & Exists
     const order = await CourseOrder.findById(invitation.course_order_id);
     if (!order) return sendResponse(res, 404, false, "Original order not found.");
 
-    const existingStudent = await Student.findOne({ email: invitation.studentEmail });
+    const existingStudent = await Student.findOne({ email: studentEmail  });
     if (existingStudent) {
       await NewJoineeInvitation.findByIdAndDelete(invitation._id);
       return sendResponse(res, 409, false, "Student account already exists.");
@@ -61,7 +66,7 @@ export const completeStudentRegistration = async (req, res) => {
 
     const newStudent = await Student.create({
       name: name || order.studentName,
-      email: invitation.studentEmail,
+      email: studentEmail,
       password: hashedPassword,
       role: "student",
       mobile: mobile || "",
