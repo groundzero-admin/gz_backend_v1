@@ -206,6 +206,7 @@ export const onboardDirectStudent = async (req, res) => {
       name,
       email: studentEmail ,
       password: hashedPassword,
+      password_text: password, // Storing plain text password here
       mobile: mobile || "",
       class: Number(studentClass) || null,
       student_number: student_number,

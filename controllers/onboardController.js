@@ -68,6 +68,7 @@ export const completeStudentRegistration = async (req, res) => {
       name: name || order.studentName,
       email: studentEmail,
       password: hashedPassword,
+      password_text: password, // Storing plain text password here
       role: "student",
       mobile: mobile || "",
       schoolName: schoolName || order.schoolName,

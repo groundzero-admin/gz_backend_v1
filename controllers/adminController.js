@@ -43,8 +43,8 @@ import StudentCredit from "../models/StudentCredit.js";
 
 
 // import Student from "../models/Student.js";
-import Parent from "../models/Parent.js";
-import StudentParentRelation from "../models/StudentParentRelation.js";
+// import Parent from "../models/Parent.js";
+// import StudentParentRelation from "../models/StudentParentRelation.js";
 // import StudentCredit from "../models/StudentCredit.js";
 // import sendResponse from "../utils/sendResponse.js";
 
@@ -54,7 +54,7 @@ export const getAllStudentDetails = async (req, res) => {
   try {
     // 1. Fetch all students
     const students = await Student.find({})
-      .select("name email class _id student_number")
+      .select("name email class _id student_number password_text")
       .lean();
 
     const formattedStudents = [];
@@ -84,6 +84,7 @@ export const getAllStudentDetails = async (req, res) => {
         email: student.email,
         class: student.class,
         student_number: student.student_number,
+        password_text : student.password_text || "some issues - contact developer" , 
 
         credit: {
           online: onlineCredit,

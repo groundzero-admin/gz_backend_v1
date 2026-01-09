@@ -60,6 +60,7 @@ import { razorpayWebhook } from "./controllers/webhookController.js";
 import { createCoursePaymentSession, createTopUpPaymentSession } from "./controllers/paymentController.js";
 import { updateStudentProfile } from "./controllers/studentController.js";
 import { getallinvitationLinksandOtp } from "./controllers/getallinvitationLinks.js";
+import { updateStudentPassword } from "./controllers/update_student_password.js";
 
 // ---- Server & DB Initialization ----
 
@@ -126,7 +127,7 @@ app.get(
   getAllStudentDetails
 );
 
-
+app.put( "/api/admin/updatestudentpassword",   requireAuthCookie,   requireAdmin,   updateStudentPassword  );
 
 
 // 1. Create a new Batch

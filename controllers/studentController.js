@@ -29,7 +29,7 @@ export const updateStudentProfile = async (req, res) => {
       studentId,
       { $set: updates },
       { new: true, runValidators: true }
-    ).select("-password"); // Exclude password from response
+    ).select("-password -password_text"); // Exclude password from response
 
     if (!updatedStudent) {
       return sendResponse(res, 404, false, "Student not found.");
