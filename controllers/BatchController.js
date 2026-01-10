@@ -706,16 +706,19 @@ export const getTodayLiveBatchInfoForStudent = async (req, res) => {
 
 export const studentBatchProgress = async (req, res) => {
   try {
-    const studentId = req.authPayload.id; // From Auth Middleware
-    const { batch_obj_id } = req.body;
-    const now = new Date();
+    const studentId = req.authPayload.id; 
+    let { batch_obj_id } = req.body; 
+
+    // Safety: Handle if ID is passed as object
+    if (typeof batch_obj_id === 'object' && batch_obj_id.batch_obj_id) {
+        batch_obj_id = batch_obj_id.batch_obj_id;
+    }
 
     if (!batch_obj_id) {
       return sendResponse(res, 400, false, "Batch ID is required.");
     }
 
     // 1. CHECK ENROLLMENT
-    // Security check: Don't give info if student isn't in the batch
     const isEnrolled = await BatchStudentRelation.exists({
       student_obj_id: studentId,
       batch_obj_id: batch_obj_id
@@ -725,77 +728,75 @@ export const studentBatchProgress = async (req, res) => {
       return sendResponse(res, 403, false, "You are not enrolled in this batch.");
     }
 
-    // 2. FETCH UPCOMING SESSIONS (Future)
-    // Get max 2 sessions immediately following current time
-    const upcomingSessions = await BatchSession.find({
-      batch_obj_id: batch_obj_id,
-      date: { $gt: now } // Date is strictly in the future
-    })
-    .sort({ date: 1 }) // Closest date first
-   
+    // 2. FETCH ALL SESSIONS (Sorted Oldest -> Newest)
+    const allSessions = await BatchSession.find({
+      batch_obj_id: batch_obj_id
+    }).sort({ date: 1 });
 
-    // 3. FETCH ALL PAST SESSIONS
-    // Get all sessions that have happened up to now
-    const pastSessions = await BatchSession.find({
-      batch_obj_id: batch_obj_id,
-      date: { $lte: now } // Date is in the past or now
-    })
-    .sort({ date: -1 }); // Most recent past session first
-
-    // 4. SEPARATE ATTENDED vs MISSED
-    
-    // Get just the IDs of past sessions to query attendance efficiently
-    const pastSessionIds = pastSessions.map(session => session._id);
-
-    // Find attendance records for this student for these specific past sessions
+    // 3. FETCH ATTENDANCE
+    const allSessionIds = allSessions.map(s => s._id);
     const attendanceRecords = await Attendance.find({
       student_obj_id: studentId,
-      session_obj_id: { $in: pastSessionIds } // Note: Schema uses 'session_obj_id'
+      session_obj_id: { $in: allSessionIds }
     });
 
-    // Create a Set of Session IDs where the student was definitely PRESENT
-    const presentSessionIds = new Set();
-    
+    const attendanceMap = new Map();
     attendanceRecords.forEach(record => {
-      if (record.status === "PRESENT") {
-        presentSessionIds.add(record.session_obj_id.toString());
-      }
+      attendanceMap.set(record.session_obj_id.toString(), record.status);
     });
 
+    // 4. CATEGORIZE SESSIONS
+    const upcomingList = [];
     const attendedList = [];
     const missedList = [];
 
-    // Loop through all past sessions and categorize them
-    pastSessions.forEach(session => {
+    allSessions.forEach(session => {
       const sId = session._id.toString();
-      
-      if (presentSessionIds.has(sId)) {
-        // Student was marked PRESENT
+      const status = attendanceMap.get(sId); // "PRESENT", "ABSENT", or undefined
+
+      if (status === "PRESENT") {
+        // Rule 1: Present -> Attended
         attendedList.push(session);
-      } else {
-        // Either marked ABSENT or No Record found (skipped class)
+      } 
+      else if (status === "ABSENT") {
+        // Rule 2: Absent -> Missed
         missedList.push(session);
+      } 
+      else {
+        // Rule 3: No Record -> Upcoming (Always, regardless of time/date)
+        upcomingList.push(session);
       }
     });
 
-    // 5. SEND RESPONSE
+    // 5. SORTING
+    // Missed: Newest first
+    missedList.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    // Attended: Newest first
+    attendedList.sort((a, b) => new Date(b.date) - new Date(a.date));
+    
+    // Upcoming: Nearest future first
+    upcomingList.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Limit Upcoming to 2
+    const finalUpcoming = upcomingList ;
+
     return sendResponse(res, 200, true, "Batch status retrieved successfully.", {
-      upcoming: upcomingSessions,
+      upcoming: finalUpcoming,
       attended: attendedList,
       missed: missedList,
-      
-      // Optional: Helpful stats
       stats: {
-        totalPastClasses: pastSessions.length,
+        totalSessions: allSessions.length,
         totalAttended: attendedList.length,
-        attendancePercentage: pastSessions.length > 0 
-          ? ((attendedList.length / pastSessions.length) * 100).toFixed(1) + "%" 
+        totalMissed: missedList.length,
+        attendancePercentage: (attendedList.length + missedList.length) > 0 
+          ? ((attendedList.length / (attendedList.length + missedList.length)) * 100).toFixed(1) + "%" 
           : "0%"
       }
     });
 
   } catch (err) {
-    console.error("getStudentBatchStatus error:", err);
+    console.error("studentBatchProgress error:", err);
     return sendResponse(res, 500, false, "Server error retrieving batch status.");
   }
 };
